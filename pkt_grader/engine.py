@@ -22,6 +22,7 @@ from pkt_grader.models import (
     BatchSummary,
     CheckResult,
     DeviceSnapshot,
+    OPTIONAL_CHECK_IDS,
     RubricConfig,
     StudentReport,
 )
@@ -46,7 +47,6 @@ def extract_student_identity(filename: str) -> tuple[str, str]:
     stem = Path(filename).stem.strip()
     cleaned = re.sub(r"^(uap|uas|uts|praktikum)[_\-\s]+", "", stem, flags=re.IGNORECASE)
 
-    # Match a numeric NIM (8-20 digits) anywhere near the start or separated by delimiter
     m = re.match(r"^(\d{8,20})(?:[_\-\s]+(.*))?$", cleaned)
     if m:
         nim = m.group(1)
@@ -54,7 +54,6 @@ def extract_student_identity(filename: str) -> tuple[str, str]:
         name = re.sub(r"[_\-]+", " ", name_part).strip()
         return nim, name
 
-    # Fallback: search for an 8-20 digit token anywhere in stem
     m_any = re.search(r"(\d{8,20})", stem)
     if m_any:
         nim = m_any.group(1)
@@ -99,11 +98,14 @@ def _make_check(
     expected: str,
     actual: str,
     message: str,
+    optional: bool = False,
 ) -> CheckResult:
     possible = rubric.weight(check_id)
     ratio = max(0.0, min(1.0, earned_ratio))
     earned = round(possible * ratio, 2)
-    if ratio >= 0.999:
+    if optional and ratio <= 0.0:
+        status = "optional"
+    elif ratio >= 0.999:
         status = "pass"
     elif ratio > 0.0:
         status = "partial"
@@ -115,6 +117,7 @@ def _make_check(
         device=device,
         title=title,
         status=status,
+        optional=optional,
         points_earned=earned,
         points_possible=possible,
         expected=expected,
@@ -196,8 +199,8 @@ def _check_topology(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 rubric,
                 1.0,
                 "5 link sesuai tabel koneksi",
-                f"{len(lab.links)} link terdeteksi, semua cocok",
-                "Seluruh koneksi kabel sesuai pemetaan soal.",
+                f"{len(lab.links)} link terdeteksi, seluruh koneksi sesuai",
+                "Seluruh koneksi kabel sesuai pemetaan pada brief.",
             )
         )
     else:
@@ -224,10 +227,10 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
     if s1 is None:
         for cid, title in [
             ("s1_vlans", "Pembuatan VLAN 10 dan VLAN 20"),
-            ("s1_access_fa01", "Port access Fa0/1 untuk VLAN 10"),
-            ("s1_access_fa02", "Port access Fa0/2 untuk VLAN 20"),
-            ("s1_trunk_mode", "Mode trunk pada Gi0/1"),
-            ("s1_trunk_allowed", "Allowed VLAN 10,20 pada trunk Gi0/1"),
+            ("s1_access_fa01", "Port access FastEthernet0/1 untuk VLAN 10"),
+            ("s1_access_fa02", "Port access FastEthernet0/2 untuk VLAN 20"),
+            ("s1_trunk_mode", "Mode trunk pada GigabitEthernet0/1"),
+            ("s1_trunk_allowed", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1"),
         ]:
             checks.append(
                 _make_check(
@@ -238,7 +241,6 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
             )
         return checks
 
-    # 1. VLAN 10 and 20
     has_v10 = 10 in s1.vlans
     has_v20 = 20 in s1.vlans
     found_vlans = sorted(v for v in s1.vlans if v not in (1, 1002, 1003, 1004, 1005))
@@ -263,7 +265,6 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
             )
         )
 
-    # 2. Access ports Fa0/1 (VLAN 10) and Fa0/2 (VLAN 20)
     for cid, iface_name, target_vlan, pc_label in [
         ("s1_access_fa01", "FastEthernet0/1", 10, "PC1"),
         ("s1_access_fa02", "FastEthernet0/2", 20, "PC2"),
@@ -329,19 +330,18 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 )
             )
 
-    # 3. Trunk Gi0/1 mode & allowed vlan
     gi01 = _get_iface(s1, "GigabitEthernet0/1")
     if gi01 is None:
         checks.append(
             _make_check(
-                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada Gi0/1",
+                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada GigabitEthernet0/1",
                 rubric, 0.0, "switchport mode trunk, up", "tidak dikonfigurasi",
                 "Interface GigabitEthernet0/1 ke R1 belum diatur sebagai trunk.",
             )
         )
         checks.append(
             _make_check(
-                "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                 rubric, 0.0, "switchport trunk allowed vlan 10,20", "tidak dikonfigurasi",
                 "Interface GigabitEthernet0/1 belum memiliki konfigurasi trunk.",
             )
@@ -352,7 +352,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
     if trunk_ok:
         checks.append(
             _make_check(
-                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada Gi0/1",
+                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada GigabitEthernet0/1",
                 rubric, 1.0, "switchport mode trunk, up",
                 f"mode={gi01.switchport_mode}, status=up",
                 "GigabitEthernet0/1 berstatus trunk aktif menuju R1.",
@@ -366,7 +366,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
             issues.append("port dalam keadaan shutdown")
         checks.append(
             _make_check(
-                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada Gi0/1",
+                "s1_trunk_mode", "VLAN & Switch", "S1", "Mode trunk pada GigabitEthernet0/1",
                 rubric, 0.0, "switchport mode trunk, up",
                 f"mode={gi01.switchport_mode or 'default'}, status={'shutdown' if gi01.shutdown else 'up'}",
                 "Trunk Gi0/1 belum valid: " + "; ".join(issues) + ".",
@@ -381,7 +381,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
         if has_10 and has_20:
             checks.append(
                 _make_check(
-                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                     rubric, 1.0, "VLAN 10 dan 20 diizinkan",
                     f"allowed vlan {allowed_label}",
                     "Trunk Gi0/1 secara eksplisit mengizinkan VLAN 10 dan 20.",
@@ -392,7 +392,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
             ratio = 0.5 if (has_10 or has_20) else 0.0
             checks.append(
                 _make_check(
-                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                     rubric, ratio, "VLAN 10 dan 20 diizinkan",
                     f"allowed vlan {allowed_label}",
                     f"Daftar allowed VLAN trunk tidak mencakup VLAN {', '.join(missing_v)}.",
@@ -402,7 +402,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
         if trunk_ok and not rubric.require_explicit_trunk_allowed:
             checks.append(
                 _make_check(
-                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                     rubric, 1.0, "VLAN 10 dan 20 diizinkan",
                     "default (semua VLAN diizinkan)",
                     "Trunk aktif dengan izin default (mencakup VLAN 10 dan 20).",
@@ -411,7 +411,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
         elif trunk_ok:
             checks.append(
                 _make_check(
-                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                     rubric, 0.5, "switchport trunk allowed vlan 10,20",
                     "default (tidak eksplisit)",
                     "Trunk aktif tetapi perintah 'switchport trunk allowed vlan 10,20' tidak dikonfigurasi secara eksplisit.",
@@ -420,7 +420,7 @@ def _check_switch_s1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
         else:
             checks.append(
                 _make_check(
-                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk Gi0/1",
+                    "s1_trunk_allowed", "VLAN & Switch", "S1", "Allowed VLAN 10,20 pada trunk GigabitEthernet0/1",
                     rubric, 0.0, "switchport trunk allowed vlan 10,20",
                     "tidak dikonfigurasi",
                     "Trunk dan allowed VLAN belum dikonfigurasi pada Gi0/1.",
@@ -451,7 +451,6 @@ def _check_router_r1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
             )
         return checks
 
-    # 1. Base IP integrity on R1
     base_issues: list[str] = []
     gi00 = _get_iface(r1, "GigabitEthernet0/0")
     if not gi00 or gi00.ip_address != "10.0.0.1" or gi00.subnet_mask != "255.255.255.252" or gi00.shutdown:
@@ -499,11 +498,10 @@ def _check_router_r1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 rubric, ratio,
                 "Gi0/0 10.0.0.1/30, Gi0/1.10 192.168.10.1/24, Gi0/1.20 192.168.20.1/24",
                 f"{4 - len(base_issues)}/4 interface sesuai",
-                "Perubahan tidak diinginkan pada IP awal R1: " + "; ".join(base_issues) + ".",
+                "Perubahan tidak sesuai ketentuan pada IP awal R1: " + "; ".join(base_issues) + ".",
             )
         )
 
-    # 2. DHCP Excluded Addresses
     excl_summary = (
         ", ".join(f"{lo}-{hi}" if lo != hi else lo for lo, hi in r1.ios.dhcp_excluded)
         or "tidak ada"
@@ -532,7 +530,6 @@ def _check_router_r1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 )
             )
 
-    # 3. DHCP Pools (pool name is free!)
     for cid, vlan_label, exp_net, exp_mask, exp_gw in [
         ("r1_dhcp_pool_10", "VLAN 10", "192.168.10.0", "255.255.255.0", "192.168.10.1"),
         ("r1_dhcp_pool_20", "VLAN 20", "192.168.20.0", "255.255.255.0", "192.168.20.1"),
@@ -564,7 +561,6 @@ def _check_router_r1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 )
             )
         else:
-            # Check if any pool had wrong mask or only default-router
             near = [p for p in r1.ios.dhcp_pools if p.default_router == exp_gw or p.network == exp_net]
             if near:
                 p = near[0]
@@ -589,7 +585,6 @@ def _check_router_r1(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                     )
                 )
 
-    # 4. Static route on R1 -> LAN B (192.168.30.0/24 via 10.0.0.2)
     checks.append(
         _check_static_route(
             dev=r1,
@@ -621,7 +616,6 @@ def _check_static_route(
     routes = dev.ios.static_routes
     routes_summary = "; ".join(r.raw_line for r in routes) or "tidak ada static route"
 
-    # Exact next-hop match
     for r in routes:
         if r.network == target_net and r.subnet_mask == target_mask and r.next_hop == expected_nh:
             return _make_check(
@@ -631,7 +625,6 @@ def _check_static_route(
                 f"Static route menuju {target_net}/24 melalui next-hop {expected_nh} valid.",
             )
 
-    # Exit interface match (e.g. GigabitEthernet0/0)
     for r in routes:
         if (
             r.network == target_net
@@ -651,7 +644,6 @@ def _check_static_route(
                 msg,
             )
 
-    # Default route fallback (0.0.0.0 0.0.0.0 next-hop)
     for r in routes:
         if r.network == "0.0.0.0" and r.subnet_mask == "0.0.0.0" and r.next_hop == expected_nh:
             return _make_check(
@@ -661,7 +653,6 @@ def _check_static_route(
                 f"Menggunakan default route (0.0.0.0/0), bukan rute spesifik ke {target_net}/24.",
             )
 
-    # Right destination network, wrong next-hop or host IP mistake
     for r in routes:
         if r.network == target_net:
             return _make_check(
@@ -671,7 +662,6 @@ def _check_static_route(
                 f"Mask atau next-hop keliru: tertulis '{r.subnet_mask} {r.next_hop}', seharusnya '{target_mask} {expected_nh}'.",
             )
 
-    # Common student mistake: routing to a host IP inside the target subnet instead of network address
     target_subnet = ipaddress.IPv4Network(f"{target_net}/{target_mask}", strict=False)
     for r in routes:
         if is_ip_address(r.network) and ipaddress.IPv4Address(r.network) in target_subnet:
@@ -732,7 +722,7 @@ def _check_router_r2(lab: ParsedLab, rubric: RubricConfig) -> list[CheckResult]:
                 rubric, ratio,
                 "R2 Gi0/0 10.0.0.2/30, Gi0/1 192.168.30.1/24; Server1 192.168.30.2/24",
                 "; ".join(base_issues),
-                "Perubahan tidak diinginkan pada IP awal R2/Server1: " + "; ".join(base_issues) + ".",
+                "Perubahan tidak sesuai ketentuan pada IP awal R2/Server1: " + "; ".join(base_issues) + ".",
             )
         )
 
@@ -789,8 +779,14 @@ def _check_pc_dhcp(
     exp_mask: str,
     exp_gw: str,
 ) -> CheckResult:
+    """Verify PC DHCP client mode and successful DHCP lease from R1.
+
+    Packet Tracer 8.x/9.x clears dynamic <IP>/<SUBNET> when saving a DHCP-enabled
+    host to .pkt XML, while persisting <PORT_DHCP_ENABLE>true</PORT_DHCP_ENABLE>,
+    <DHCP_SERVER_IP> (from the replying DHCP server), and <GATEWAY>.
+    """
     pc = _get_device(lab, pc_name)
-    expected_str = f"DHCP aktif, IP {range_start}-{range_end}, mask {exp_mask}, GW {exp_gw}"
+    expected_str = f"DHCP aktif, DHCP Server {exp_gw}, Gateway {exp_gw} (rentang {range_start}-{range_end})"
     if pc is None:
         return _make_check(
             check_id, "End Device DHCP", pc_name, f"DHCP client & lease pada {pc_name}",
@@ -798,15 +794,20 @@ def _check_pc_dhcp(
             f"Perangkat {pc_name} tidak ditemukan pada topologi.",
         )
 
+    ip_display = pc.ip if pc.ip else "dinamis (DHCP)"
+    mask_display = pc.subnet if pc.subnet else (exp_mask if pc.dhcp_enabled and pc.dhcp_server_ip == exp_gw else "-")
     actual_str = (
         f"DHCP={'aktif' if pc.dhcp_enabled else 'statis'}, "
-        f"IP={pc.ip or 'kosong'}, mask={pc.subnet or '-'}, GW={pc.gateway or '-'}"
+        f"DHCP_Server={pc.dhcp_server_ip or '-'}, "
+        f"GW={pc.gateway or '-'}, IP={ip_display}, mask={mask_display}"
     )
 
+    # Validate explicit IP/mask if serialized in the XML
+    has_explicit_ip = bool(pc.ip)
     ip_in_range = False
     ip_in_excluded = False
     is_apipa = False
-    if pc.ip and is_ip_address(pc.ip):
+    if has_explicit_ip and is_ip_address(pc.ip):
         ip_int = int(ipaddress.IPv4Address(pc.ip))
         lo_int = int(ipaddress.IPv4Address(range_start))
         hi_int = int(ipaddress.IPv4Address(range_end))
@@ -818,42 +819,60 @@ def _check_pc_dhcp(
             if 1 <= last_octet <= 10:
                 ip_in_excluded = True
 
-    mask_ok = pc.subnet == exp_mask
+    mask_ok = (not pc.subnet) or (pc.subnet == exp_mask)
     gw_ok = pc.gateway == exp_gw
+    dhcp_srv_ok = pc.dhcp_server_ip == exp_gw
 
-    if pc.dhcp_enabled and ip_in_range and mask_ok and gw_ok:
+    # Case 1: Native Packet Tracer DHCP save (PORT_DHCP_ENABLE=true, DHCP_SERVER_IP=exp_gw, GATEWAY=exp_gw)
+    if pc.dhcp_enabled and dhcp_srv_ok and gw_ok and not is_apipa and not ip_in_excluded and mask_ok:
+        if not has_explicit_ip or ip_in_range:
+            detail_ip = f" ({pc.ip})" if has_explicit_ip else " (terverifikasi via DHCP server & gateway)"
+            return _make_check(
+                check_id, "End Device DHCP", pc_name, f"DHCP client & lease pada {pc_name}",
+                rubric, 1.0, expected_str, actual_str,
+                f"{pc_name} aktif dalam mode DHCP dan menerima lease valid dari {exp_gw}{detail_ip}.",
+            )
+
+    # Case 2: Synthetic / older PT save with explicit IP in range + mask + gateway + DHCP enabled
+    if pc.dhcp_enabled and has_explicit_ip and ip_in_range and pc.subnet == exp_mask and gw_ok:
         return _make_check(
             check_id, "End Device DHCP", pc_name, f"DHCP client & lease pada {pc_name}",
             rubric, 1.0, expected_str, actual_str,
-            f"{pc_name} berhasil memperoleh IP DHCP valid ({pc.ip}) beserta gateway {pc.gateway}.",
+            f"{pc_name} aktif dalam mode DHCP dengan IP valid ({pc.ip}) dan gateway {pc.gateway}.",
         )
 
     issues: list[str] = []
     if not pc.dhcp_enabled:
         issues.append("mode DHCP belum diaktifkan (masih Static)")
     if is_apipa:
-        issues.append(f"mendapat alamat APIPA ({pc.ip}), menandakan permintaan DHCP gagal mencapai R1")
+        issues.append(f"memperoleh alamat APIPA ({pc.ip}), menandakan permintaan DHCP gagal mencapai R1")
     elif ip_in_excluded:
-        issues.append(f"IP {pc.ip} berada di rentang excluded (.1-.10)")
-    elif not ip_in_range:
-        issues.append(f"IP aktual '{pc.ip or 'kosong'}' di luar rentang {range_start}-{range_end}")
-    if not mask_ok:
-        issues.append(f"subnet mask '{pc.subnet or 'kosong'}' tidak sesuai {exp_mask}")
+        issues.append(f"IP {pc.ip} berada pada rentang excluded (.1-.10)")
+    elif pc.dhcp_enabled and not dhcp_srv_ok and not (has_explicit_ip and ip_in_range):
+        issues.append(
+            f"DHCP server terdeteksi '{pc.dhcp_server_ip or 'tidak ada'}', seharusnya {exp_gw}"
+        )
+    if has_explicit_ip and not ip_in_range and not is_apipa and not ip_in_excluded:
+        issues.append(f"IP aktual '{pc.ip}' di luar rentang {range_start}-{range_end}")
+    if pc.subnet and pc.subnet != exp_mask:
+        issues.append(f"subnet mask '{pc.subnet}' tidak sesuai {exp_mask}")
     if not gw_ok:
         issues.append(f"default gateway '{pc.gateway or 'kosong'}' tidak sesuai {exp_gw}")
 
     ratio = 0.0
     if pc.dhcp_enabled and ip_in_excluded and mask_ok and gw_ok:
         ratio = 0.6
-    elif not pc.dhcp_enabled and ip_in_range and mask_ok and gw_ok:
-        ratio = 0.3  # Manual IP instead of DHCP
+    elif not pc.dhcp_enabled and ip_in_range and pc.subnet == exp_mask and gw_ok:
+        ratio = 0.3
+    elif pc.dhcp_enabled and (gw_ok or dhcp_srv_ok):
+        ratio = 0.5
     elif pc.dhcp_enabled:
-        ratio = 0.2  # DHCP toggled on, but failed lease
+        ratio = 0.2
 
     return _make_check(
         check_id, "End Device DHCP", pc_name, f"DHCP client & lease pada {pc_name}",
         rubric, ratio, expected_str, actual_str,
-        f"DHCP {pc_name} bermasalah: " + "; ".join(issues) + ".",
+        f"Konfigurasi DHCP {pc_name} belum valid: " + "; ".join(issues) + ".",
     )
 
 
@@ -886,6 +905,81 @@ def _check_save_config(lab: ParsedLab, rubric: RubricConfig) -> CheckResult:
     )
 
 
+def _check_optional_dns(lab: ParsedLab, rubric: RubricConfig) -> tuple[CheckResult, str]:
+    """Optional DNS check (does not penalize if omitted; score remains capped at 100)."""
+    r1 = _get_device(lab, "R1")
+    srv = _get_device(lab, "Server1")
+    pc1 = _get_device(lab, "PC1")
+    pc2 = _get_device(lab, "PC2")
+
+    pool_v10_dns = ""
+    pool_v20_dns = ""
+    if r1 is not None:
+        for p in r1.ios.dhcp_pools:
+            if p.network == "192.168.10.0" and p.dns_server:
+                pool_v10_dns = p.dns_server
+            if p.network == "192.168.20.0" and p.dns_server:
+                pool_v20_dns = p.dns_server
+
+    srv_dns_on = bool(srv and srv.dns_server_enabled)
+    srv_records = srv.dns_records if srv else []
+    pc1_dns = pc1.dns_client_ip if pc1 else ""
+    pc2_dns = pc2.dns_client_ip if pc2 else ""
+
+    has_any_dns = bool(pool_v10_dns or pool_v20_dns or srv_dns_on or srv_records or pc1_dns or pc2_dns)
+
+    expected = "Opsional: dns-server 192.168.30.2 di pool VLAN10 & VLAN20, layanan DNS aktif + A-record di Server1"
+    actual_parts = [
+        f"R1 pool VLAN10 dns={pool_v10_dns or '-'}",
+        f"VLAN20 dns={pool_v20_dns or '-'}",
+        f"Server1 DNS={'aktif' if srv_dns_on else 'nonaktif'} ({len(srv_records)} record)",
+    ]
+    if pc1_dns or pc2_dns:
+        actual_parts.append(f"PC1 dns={pc1_dns or '-'}, PC2 dns={pc2_dns or '-'}")
+    actual = "; ".join(actual_parts)
+
+    if not has_any_dns:
+        check = _make_check(
+            "opt_dns", "Opsional", "R1, Server1", "Konfigurasi DNS (opsional)",
+            rubric, 0.0, expected, "Tidak dikonfigurasi",
+            "Tidak dikonfigurasi (bersifat opsional sesuai brief, tidak mengurangi nilai).",
+            optional=True,
+        )
+        return check, "none"
+
+    v10_ok = pool_v10_dns == "192.168.30.2"
+    v20_ok = pool_v20_dns == "192.168.30.2"
+    srv_ok = srv_dns_on and len(srv_records) > 0
+
+    if v10_ok and v20_ok and srv_ok:
+        check = _make_check(
+            "opt_dns", "Opsional", "R1, Server1", "Konfigurasi DNS (opsional)",
+            rubric, 1.0, expected, actual,
+            "Konfigurasi DNS opsional terdeteksi lengkap (dns-server 192.168.30.2 pada kedua pool R1 dan layanan DNS aktif di Server1).",
+            optional=True,
+        )
+        return check, "complete"
+
+    notes: list[str] = []
+    if not v10_ok:
+        notes.append("pool VLAN 10 belum menyertakan 'dns-server 192.168.30.2'")
+    if not v20_ok:
+        notes.append("pool VLAN 20 belum menyertakan 'dns-server 192.168.30.2'")
+    if not srv_dns_on:
+        notes.append("layanan DNS pada Server1 belum diaktifkan")
+    elif not srv_records:
+        notes.append("belum ada A-record pada Server1 DNS")
+
+    ratio = sum([v10_ok, v20_ok, srv_ok]) / 3.0
+    check = _make_check(
+        "opt_dns", "Opsional", "R1, Server1", "Konfigurasi DNS (opsional)",
+        rubric, max(0.3, ratio), expected, actual,
+        "Konfigurasi DNS opsional terdeteksi parsial: " + "; ".join(notes) + ".",
+        optional=True,
+    )
+    return check, "partial"
+
+
 def _build_snapshots(lab: ParsedLab) -> dict[str, DeviceSnapshot]:
     out: dict[str, DeviceSnapshot] = {}
     for name, dev in lab.devices.items():
@@ -898,6 +992,9 @@ def _build_snapshots(lab: ParsedLab) -> dict[str, DeviceSnapshot]:
             gateway=dev.gateway,
             dhcp_enabled=dev.dhcp_enabled,
             dhcp_server_ip=dev.dhcp_server_ip,
+            dns_client_ip=dev.dns_client_ip,
+            dns_server_enabled=dev.dns_server_enabled,
+            dns_records=dev.dns_records,
             has_startup_config=bool(dev.startup_config_text.strip()),
             running_config=dev.running_config_text,
             vlans=sorted(v for v in dev.vlans if v not in (1002, 1003, 1004, 1005)),
@@ -916,10 +1013,18 @@ def grade_bytes(
     nim, student_name = extract_student_identity(filename)
     src = source_path or filename
 
+    mandatory_max = round(
+        sum(
+            active_rubric.weight(k)
+            for k in active_rubric.weights
+            if k not in OPTIONAL_CHECK_IDS
+        ),
+        2,
+    )
+
     try:
         lab = parse_pkt_bytes(data)
     except Exception as exc:
-        max_possible = round(sum(active_rubric.weight(k) for k in active_rubric.weights), 2)
         return StudentReport(
             filename=filename,
             source_path=src,
@@ -927,7 +1032,7 @@ def grade_bytes(
             student_name=student_name,
             status="error",
             score=0.0,
-            max_score=max_possible,
+            max_score=mandatory_max,
             percentage=0.0,
             passed=False,
             errors=[f"Gagal membaca file Packet Tracer: {exc}"],
@@ -953,9 +1058,14 @@ def grade_bytes(
     )
     checks.append(_check_save_config(lab, active_rubric))
 
-    score = round(sum(c.points_earned for c in checks), 2)
-    max_score = round(sum(c.points_possible for c in checks), 2)
-    percentage = round((score / max_score * 100.0) if max_score > 0 else 0.0, 2)
+    dns_check, dns_status = _check_optional_dns(lab, active_rubric)
+    checks.append(dns_check)
+
+    # Mandatory max score caps total so optional bonus never exceeds max_score (100)
+    max_score = round(sum(c.points_possible for c in checks if not c.optional), 2)
+    raw_score = round(sum(c.points_earned for c in checks), 2)
+    score = min(raw_score, max_score) if max_score > 0 else raw_score
+    percentage = min(100.0, round((score / max_score * 100.0) if max_score > 0 else 0.0, 2))
     passed = percentage >= active_rubric.pass_threshold
 
     if percentage >= active_rubric.pass_threshold:
@@ -967,11 +1077,17 @@ def grade_bytes(
 
     category_scores: dict[str, dict[str, float]] = {}
     for c in checks:
+        if c.optional:
+            continue
         bucket = category_scores.setdefault(c.category, {"earned": 0.0, "possible": 0.0})
         bucket["earned"] = round(bucket["earned"] + c.points_earned, 2)
         bucket["possible"] = round(bucket["possible"] + c.points_possible, 2)
 
-    errors = [f"[{c.device}] {c.title}: {c.message}" for c in checks if c.status != "pass"]
+    errors = [
+        f"[{c.device}] {c.title}: {c.message}"
+        for c in checks
+        if not c.optional and c.status != "pass"
+    ]
 
     return StudentReport(
         filename=filename,
@@ -985,6 +1101,7 @@ def grade_bytes(
         max_score=max_score,
         percentage=percentage,
         passed=passed,
+        dns_optional_status=dns_status,  # type: ignore[arg-type]
         checks=checks,
         errors=errors,
         category_scores=category_scores,
@@ -1010,7 +1127,6 @@ def grade_archive_bytes(
             if info.is_dir():
                 continue
             member_path = Path(info.filename)
-            # Skip macOS resource forks and hidden files
             if "__MACOSX" in member_path.parts or member_path.name.startswith("."):
                 continue
             suffix = member_path.suffix.lower()
@@ -1064,7 +1180,7 @@ def summarize_batch(results: list[StudentReport], rubric: RubricConfig) -> Batch
     failure_counter: Counter[tuple[str, str, str]] = Counter()
     for r in results:
         for c in r.checks:
-            if c.status != "pass":
+            if not c.optional and c.status != "pass":
                 failure_counter[(c.id, c.device, c.title)] += 1
 
     common_failures = [

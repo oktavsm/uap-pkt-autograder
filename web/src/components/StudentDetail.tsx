@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CheckStatus, StudentReport } from "../types";
+import type { CheckStatus, DnsOptionalStatus, StudentReport } from "../types";
 import { CheckIcon, CloseIcon, CopyIcon, MinusCircleIcon } from "./Icons";
 
 interface StudentDetailProps {
@@ -8,12 +8,32 @@ interface StudentDetailProps {
 
 type InspectorTab = "checks" | "S1" | "R1" | "R2" | "hosts";
 
-function StatusBadge({ status }: { status: CheckStatus | "error" }) {
+function StatusBadge({ status, optional }: { status: CheckStatus | "error"; optional?: boolean }) {
+  if (optional) {
+    if (status === "pass") {
+      return (
+        <span className="status-badge status-optional">
+          <CheckIcon size={12} />
+          OPSIONAL · LENGKAP
+        </span>
+      );
+    }
+    if (status === "partial") {
+      return (
+        <span className="status-badge status-optional">
+          <MinusCircleIcon size={12} />
+          OPSIONAL · PARSIAL
+        </span>
+      );
+    }
+    return <span className="status-badge status-optional">OPSIONAL · TIDAK ADA</span>;
+  }
+
   if (status === "pass") {
     return (
       <span className="status-badge status-pass">
         <CheckIcon size={12} />
-        LULUS
+        SESUAI
       </span>
     );
   }
@@ -28,9 +48,29 @@ function StatusBadge({ status }: { status: CheckStatus | "error" }) {
   return (
     <span className="status-badge status-fail">
       <CloseIcon size={12} />
-      {status === "error" ? "ERROR" : "GAGAL"}
+      {status === "error" ? "GALAT" : "TIDAK SESUAI"}
     </span>
   );
+}
+
+function DnsSummaryBadge({ status }: { status: DnsOptionalStatus }) {
+  if (status === "complete") {
+    return (
+      <span className="status-badge status-optional">
+        <CheckIcon size={12} />
+        DNS OPSIONAL: LENGKAP
+      </span>
+    );
+  }
+  if (status === "partial") {
+    return (
+      <span className="status-badge status-optional">
+        <MinusCircleIcon size={12} />
+        DNS OPSIONAL: PARSIAL
+      </span>
+    );
+  }
+  return <span className="status-badge status-optional">DNS OPSIONAL: TIDAK DIKONFIGURASI</span>;
 }
 
 export function StudentDetail({ student }: StudentDetailProps) {
@@ -44,7 +84,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
   }, [student.source_path]);
 
   const visibleChecks = onlyErrors
-    ? student.checks.filter((c) => c.status !== "pass")
+    ? student.checks.filter((c) => !c.optional && c.status !== "pass")
     : student.checks;
 
   const copyConfig = async (deviceKey: string, content: string) => {
@@ -64,7 +104,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
         <div className="empty-state">
           <p className="empty-title">Konfigurasi {deviceKey} tidak tersedia</p>
           <p className="empty-desc">
-            Perangkat {deviceKey} tidak ditemukan atau tidak memiliki running-config pada file ini.
+            Perangkat {deviceKey} tidak ditemukan atau tidak memiliki running-config pada berkas ini.
           </p>
         </div>
       );
@@ -82,7 +122,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
             onClick={() => copyConfig(deviceKey, dev.running_config)}
           >
             {copiedKey === deviceKey ? <CheckIcon /> : <CopyIcon />}
-            {copiedKey === deviceKey ? "Tersalin" : "Salin show run"}
+            {copiedKey === deviceKey ? "Tersalin" : "Salin konfigurasi"}
           </button>
         </div>
         <pre className="config-pre">{dev.running_config}</pre>
@@ -91,7 +131,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
   };
 
   return (
-    <section className="inspector-card" aria-label="Detail penilaian mahasiswa">
+    <section className="inspector-card" aria-label="Rincian hasil evaluasi mahasiswa">
       <div className="inspector-header">
         <div>
           <p className="metric-label">
@@ -108,6 +148,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
             {student.score.toFixed(1)} / {student.max_score.toFixed(0)}
           </span>
           <StatusBadge status={student.status} />
+          <DnsSummaryBadge status={student.dns_optional_status} />
         </div>
       </div>
 
@@ -115,7 +156,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
         <div className="alert" role="alert">
           <CloseIcon size={16} />
           <div>
-            <strong>File tidak dapat diproses:</strong> {student.parse_error}
+            <strong>Berkas tidak dapat diproses:</strong> {student.parse_error}
           </div>
         </div>
       )}
@@ -136,11 +177,11 @@ export function StudentDetail({ student }: StudentDetailProps) {
       <div className="tab-bar" role="tablist" aria-label="Panel inspeksi perangkat">
         {(
           [
-            ["checks", `Evaluasi (${student.checks.length})`],
-            ["S1", "S1 show run"],
-            ["R1", "R1 show run"],
-            ["R2", "R2 show run"],
-            ["hosts", "PC & Server"],
+            ["checks", `Indikator (${student.checks.length})`],
+            ["S1", "S1 running-config"],
+            ["R1", "R1 running-config"],
+            ["R2", "R2 running-config"],
+            ["hosts", "End Device"],
           ] as [InspectorTab, string][]
         ).map(([id, label]) => (
           <button
@@ -161,8 +202,8 @@ export function StudentDetail({ student }: StudentDetailProps) {
           <div className="config-bar">
             <span className="metric-label">
               {student.errors.length === 0
-                ? "Semua item konfigurasi lulus."
-                : `${student.errors.length} item memerlukan perbaikan.`}
+                ? "Seluruh indikator wajib terpenuhi."
+                : `${student.errors.length} indikator wajib memerlukan perbaikan.`}
             </span>
             <button
               type="button"
@@ -170,15 +211,15 @@ export function StudentDetail({ student }: StudentDetailProps) {
               aria-pressed={onlyErrors}
               onClick={() => setOnlyErrors((v) => !v)}
             >
-              {onlyErrors ? "Tampilkan semua item" : "Hanya item bermasalah"}
+              {onlyErrors ? "Tampilkan semua indikator" : "Hanya indikator bermasalah"}
             </button>
           </div>
 
           {visibleChecks.length === 0 ? (
             <div className="empty-state">
-              <p className="empty-title">Tidak ada kesalahan ditemukan</p>
+              <p className="empty-title">Tidak ditemukan ketidaksesuaian</p>
               <p className="empty-desc">
-                Semua item pada rubrik untuk mahasiswa ini berstatus lulus.
+                Seluruh indikator wajib pada rubrik telah terpenuhi untuk berkas ini.
               </p>
             </div>
           ) : (
@@ -191,20 +232,24 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   </div>
                   <div className="check-title-wrap">
                     <span className="metric-label mono">
-                      {check.points_earned}/{check.points_possible}
+                      {check.optional
+                        ? check.points_possible > 0
+                          ? `bonus ${check.points_earned}/${check.points_possible}`
+                          : "opsional"
+                        : `${check.points_earned}/${check.points_possible}`}
                     </span>
-                    <StatusBadge status={check.status} />
+                    <StatusBadge status={check.status} optional={check.optional} />
                   </div>
                 </div>
                 <p className="check-msg">{check.message}</p>
-                {check.status !== "pass" && (
+                {(check.status !== "pass" || check.optional) && (
                   <dl className="check-diff-meta">
                     <div>
-                      <dt>Target</dt>
+                      <dt>Acuan</dt>
                       <dd>{check.expected}</dd>
                     </div>
                     <div>
-                      <dt>Aktual</dt>
+                      <dt>Terdeteksi</dt>
                       <dd>{check.actual}</dd>
                     </div>
                   </dl>
@@ -228,18 +273,34 @@ export function StudentDetail({ student }: StudentDetailProps) {
                 <p className="check-title">{hostName}</p>
                 {host ? (
                   <dl className="host-kv">
-                    <dt>Mode</dt>
-                    <dd>{host.dhcp_enabled ? "DHCP" : "Static"}</dd>
+                    <dt>Mode IP</dt>
+                    <dd>{host.dhcp_enabled ? "DHCP" : "Statis"}</dd>
                     <dt>IP</dt>
-                    <dd>{host.ip || "-"}</dd>
-                    <dt>Mask</dt>
-                    <dd>{host.subnet || "-"}</dd>
+                    <dd>{host.ip || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
+                    <dt>Subnet</dt>
+                    <dd>{host.subnet || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
                     <dt>Gateway</dt>
                     <dd>{host.gateway || "-"}</dd>
                     {host.dhcp_server_ip && (
                       <>
-                        <dt>DHCP Srv</dt>
+                        <dt>DHCP Server</dt>
                         <dd>{host.dhcp_server_ip}</dd>
+                      </>
+                    )}
+                    {host.dns_client_ip && (
+                      <>
+                        <dt>DNS Client</dt>
+                        <dd>{host.dns_client_ip}</dd>
+                      </>
+                    )}
+                    {hostName === "Server1" && (
+                      <>
+                        <dt>Layanan DNS</dt>
+                        <dd>
+                          {host.dns_server_enabled
+                            ? `Aktif (${host.dns_records.length} record)`
+                            : "Nonaktif"}
+                        </dd>
                       </>
                     )}
                   </dl>

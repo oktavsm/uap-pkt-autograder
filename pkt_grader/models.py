@@ -26,7 +26,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "pc1_dhcp": 7.0,
     "pc2_dhcp": 7.0,
     "save_config": 6.0,
+    "opt_dns": 0.0,
 }
+
+OPTIONAL_CHECK_IDS: frozenset[str] = frozenset({"opt_dns"})
 
 
 class RubricConfig(BaseModel):
@@ -45,7 +48,8 @@ class CheckResult(BaseModel):
     category: str
     device: str
     title: str
-    status: Literal["pass", "partial", "fail"]
+    status: Literal["pass", "partial", "fail", "optional"]
+    optional: bool = False
     points_earned: float
     points_possible: float
     expected: str
@@ -62,6 +66,9 @@ class DeviceSnapshot(BaseModel):
     gateway: str = ""
     dhcp_enabled: bool = False
     dhcp_server_ip: str = ""
+    dns_client_ip: str = ""
+    dns_server_enabled: bool = False
+    dns_records: list[str] = Field(default_factory=list)
     has_startup_config: bool = False
     running_config: str = ""
     vlans: list[int] = Field(default_factory=list)
@@ -79,6 +86,7 @@ class StudentReport(BaseModel):
     max_score: float
     percentage: float
     passed: bool
+    dns_optional_status: Literal["complete", "partial", "none"] = "none"
     checks: list[CheckResult] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     category_scores: dict[str, dict[str, float]] = Field(default_factory=dict)

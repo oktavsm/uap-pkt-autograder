@@ -18,6 +18,7 @@ from pkt_grader.server import create_app
 
 
 TEMPLATE_PKT = Path(__file__).resolve().parent.parent.parent / "UAP Topology.pkt"
+CONFIGURED_PKT = Path(__file__).resolve().parent.parent.parent / "UAP Topology_configured.pkt"
 
 
 def _set_running_config(eng: ET.Element, lines: list[str], also_startup: bool = True) -> None:
@@ -28,11 +29,11 @@ def _set_running_config(eng: ET.Element, lines: list[str], also_startup: bool = 
     for line in lines:
         el = ET.SubElement(rc, "LINE")
         el.text = line
+    sc = eng.find("STARTUPCONFIG")
+    if sc is None:
+        sc = ET.SubElement(eng, "STARTUPCONFIG")
+    sc.clear()
     if also_startup:
-        sc = eng.find("STARTUPCONFIG")
-        if sc is None:
-            sc = ET.SubElement(eng, "STARTUPCONFIG")
-        sc.clear()
         for line in lines:
             el = ET.SubElement(sc, "LINE")
             el.text = line
@@ -44,8 +45,8 @@ def _build_synthetic_pkt(
     s1_extra_lines: list[str] | None = None,
     r1_extra_lines: list[str] | None = None,
     r2_extra_lines: list[str] | None = None,
-    pc1_cfg: tuple[bool, str, str, str] = (True, "192.168.10.11", "255.255.255.0", "192.168.10.1"),
-    pc2_cfg: tuple[bool, str, str, str] = (True, "192.168.20.11", "255.255.255.0", "192.168.20.1"),
+    pc1_cfg: tuple[bool, str, str, str, str] = (True, "", "", "192.168.10.1", "192.168.10.1"),
+    pc2_cfg: tuple[bool, str, str, str, str] = (True, "", "", "192.168.20.1", "192.168.20.1"),
     save_startup: bool = True,
 ) -> bytes:
     container = decode_bytes(TEMPLATE_PKT.read_bytes())
@@ -60,6 +61,8 @@ def _build_synthetic_pkt(
         if name == "S1":
             vlans_el = eng.find("VLANS")
             if vlans_el is not None:
+                vlans_el.clear()
+                ET.SubElement(vlans_el, "VLAN", {"name": "default", "number": "1", "rspan": "0"})
                 for vid in s1_vlans:
                     ET.SubElement(vlans_el, "VLAN", {"name": f"VLAN{vid}", "number": str(vid), "rspan": "0"})
             lines = s1_extra_lines if s1_extra_lines is not None else [
@@ -131,7 +134,7 @@ def _build_synthetic_pkt(
             _set_running_config(eng, lines, also_startup=save_startup)
 
         elif name in ("PC1", "PC2"):
-            dhcp_en, ip, mask, gw = pc1_cfg if name == "PC1" else pc2_cfg
+            dhcp_en, ip, mask, gw, dhcp_srv = pc1_cfg if name == "PC1" else pc2_cfg
             gw_el = eng.find("GATEWAY")
             if gw_el is not None:
                 gw_el.text = gw
@@ -140,10 +143,35 @@ def _build_synthetic_pkt(
                 port.find("PORT_DHCP_ENABLE").text = "true" if dhcp_en else "false"
                 port.find("IP").text = ip
                 port.find("SUBNET").text = mask
-                port.find("PORT_GATEWAY").text = gw
+                port.find("PORT_GATEWAY").text = ""
+                port.find("DHCP_SERVER_IP").text = dhcp_srv
 
     new_xml = ET.tostring(root, encoding="utf-8")
     return encode_bytes(new_xml, container.format_name)
+
+
+def _build_unconfigured_pkt() -> bytes:
+    return _build_synthetic_pkt(
+        s1_vlans=[],
+        s1_extra_lines=["!", "hostname Switch", "interface FastEthernet0/1", "interface FastEthernet0/2", "interface GigabitEthernet0/1", "end"],
+        r1_extra_lines=[
+            "!", "hostname Router",
+            "interface GigabitEthernet0/0", " ip address 10.0.0.1 255.255.255.252",
+            "interface GigabitEthernet0/1", " no ip address",
+            "interface GigabitEthernet0/1.10", " encapsulation dot1Q 10", " ip address 192.168.10.1 255.255.255.0",
+            "interface GigabitEthernet0/1.20", " encapsulation dot1Q 20", " ip address 192.168.20.1 255.255.255.0",
+            "end",
+        ],
+        r2_extra_lines=[
+            "!", "hostname Router",
+            "interface GigabitEthernet0/0", " ip address 10.0.0.2 255.255.255.252",
+            "interface GigabitEthernet0/1", " ip address 192.168.30.1 255.255.255.0",
+            "end",
+        ],
+        pc1_cfg=(False, "", "", "", "0.0.0.0"),
+        pc2_cfg=(False, "", "", "", "0.0.0.0"),
+        save_startup=False,
+    )
 
 
 def test_extract_student_identity() -> None:
@@ -157,7 +185,7 @@ def test_extract_student_identity() -> None:
 
 @pytest.mark.skipif(not TEMPLATE_PKT.exists(), reason="Template UAP Topology.pkt not present")
 def test_grade_unconfigured_template() -> None:
-    report = grade_bytes(TEMPLATE_PKT.read_bytes(), "UAP Topology.pkt")
+    report = grade_bytes(_build_unconfigured_pkt(), "UAP Topology.pkt")
     assert report.status == "fail"
     assert report.score == 11.0
     assert report.max_score == 100.0
@@ -201,12 +229,12 @@ def test_grade_partial_with_common_mistakes() -> None:
             "ip route 192.168.30.0 255.255.255.0 10.0.0.2",
             "end",
         ],
-        pc2_cfg=(True, "169.254.12.34", "255.255.0.0", ""),
+        pc2_cfg=(True, "169.254.12.34", "255.255.0.0", "", "0.0.0.0"),
         save_startup=False,
     )
     report = grade_bytes(broken, "UAP_245150600111002_Siti.pkt")
     assert report.score < 100.0
-    failed_ids = {c.id for c in report.checks if c.status != "pass"}
+    failed_ids = {c.id for c in report.checks if not c.optional and c.status != "pass"}
     assert "r1_dhcp_excl_10" in failed_ids
     assert "r1_dhcp_excl_20" in failed_ids
     assert "pc2_dhcp" in failed_ids
@@ -216,7 +244,7 @@ def test_grade_partial_with_common_mistakes() -> None:
 @pytest.mark.skipif(not TEMPLATE_PKT.exists(), reason="Template UAP Topology.pkt not present")
 def test_zip_archive_cli_and_api(tmp_path: Path) -> None:
     perfect_bytes = _build_synthetic_pkt()
-    template_bytes = TEMPLATE_PKT.read_bytes()
+    template_bytes = _build_unconfigured_pkt()
 
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w") as zf:
@@ -260,3 +288,74 @@ def test_zip_archive_cli_and_api(tmp_path: Path) -> None:
     assert csv_res.status_code == 200
     assert "text/csv" in csv_res.headers["content-type"]
     assert "245150600111001" in csv_res.text
+
+
+@pytest.mark.skipif(not CONFIGURED_PKT.exists(), reason="Real configured .pkt not present")
+def test_grade_real_pt9_configured_file() -> None:
+    report = grade_bytes(CONFIGURED_PKT.read_bytes(), CONFIGURED_PKT.name)
+    assert report.score == 100.0
+    assert report.max_score == 100.0
+    assert report.percentage == 100.0
+    assert report.passed is True
+    assert report.errors == []
+    assert report.dns_optional_status == "none"
+
+
+@pytest.mark.skipif(not TEMPLATE_PKT.exists(), reason="Template UAP Topology.pkt not present")
+def test_optional_dns_detection_and_score_cap() -> None:
+    from pkt_grader.models import RubricConfig
+
+    container = decode_bytes(
+        _build_synthetic_pkt(
+            r1_extra_lines=[
+                "!",
+                "hostname R1",
+                "ip dhcp excluded-address 192.168.10.1 192.168.10.10",
+                "ip dhcp excluded-address 192.168.20.1 192.168.20.10",
+                "!",
+                "ip dhcp pool VLAN10",
+                " network 192.168.10.0 255.255.255.0",
+                " default-router 192.168.10.1",
+                " dns-server 192.168.30.2",
+                "ip dhcp pool VLAN20",
+                " network 192.168.20.0 255.255.255.0",
+                " default-router 192.168.20.1",
+                " dns-server 192.168.30.2",
+                "!",
+                "interface GigabitEthernet0/0",
+                " ip address 10.0.0.1 255.255.255.252",
+                "interface GigabitEthernet0/1",
+                " no ip address",
+                "interface GigabitEthernet0/1.10",
+                " encapsulation dot1Q 10",
+                " ip address 192.168.10.1 255.255.255.0",
+                "interface GigabitEthernet0/1.20",
+                " encapsulation dot1Q 20",
+                " ip address 192.168.20.1 255.255.255.0",
+                "ip route 192.168.30.0 255.255.255.0 10.0.0.2",
+                "end",
+            ]
+        )
+    )
+    root = ET.fromstring(container.xml)
+    for dev in root.findall("./NETWORK/DEVICES/DEVICE"):
+        eng = dev.find("ENGINE")
+        if eng is not None and (eng.findtext("NAME") or "").strip() == "Server1":
+            dns_srv = eng.find("DNS_SERVER")
+            if dns_srv is not None:
+                dns_srv.find("ENABLED").text = "1"
+                db = dns_srv.find("NAMESERVER-DATABASE")
+                rec = ET.SubElement(db, "RECORD")
+                ET.SubElement(rec, "NAME").text = "server1.uap.local"
+                ET.SubElement(rec, "IP").text = "192.168.30.2"
+    pkt_with_dns = encode_bytes(ET.tostring(root, encoding="utf-8"), container.format_name)
+
+    # Even with bonus weight assigned to opt_dns, total score remains capped at 100
+    rubric = RubricConfig()
+    rubric.weights["opt_dns"] = 5.0
+    report = grade_bytes(pkt_with_dns, "UAP_245150600111010_Dewi.pkt", rubric=rubric)
+    assert report.dns_optional_status == "complete"
+    assert report.score == 100.0
+    assert report.max_score == 100.0
+    assert report.percentage == 100.0
+

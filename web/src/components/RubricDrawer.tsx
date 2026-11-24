@@ -30,7 +30,9 @@ export function RubricDrawer({
 
   if (!open) return null;
 
-  const totalWeight = Object.values(rubric.weights).reduce((a, b) => a + b, 0);
+  const mandatoryTotal = Object.entries(rubric.weights)
+    .filter(([key]) => key !== "opt_dns")
+    .reduce((sum, [, val]) => sum + val, 0);
 
   return (
     <div
@@ -49,9 +51,11 @@ export function RubricDrawer({
         <div className="drawer-header">
           <div>
             <h2 id="rubric-drawer-title" className="inspector-title">
-              Konfigurasi Rubrik
+              Konfigurasi Rubrik Penilaian
             </h2>
-            <p className="metric-label">Total bobot saat ini: {totalWeight.toFixed(1)} poin</p>
+            <p className="metric-label">
+              Bobot wajib: {mandatoryTotal.toFixed(1)} poin (nilai akhir maksimum tetap 100%)
+            </p>
           </div>
           <button
             type="button"

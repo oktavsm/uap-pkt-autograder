@@ -26,6 +26,7 @@ CSV_COLUMNS = [
     "static_routing",
     "end_device_dhcp",
     "penyimpanan",
+    "dns_optional",
     "failed_check_ids",
     "error_details",
 ]
@@ -47,7 +48,10 @@ def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
     writer.writeheader()
 
     for r in report.results:
-        failed_ids = [c.id for c in r.checks if c.status != "pass"]
+        failed_ids = [c.id for c in r.checks if not c.optional and c.status != "pass"]
+        dns_label = {"complete": "LENGKAP", "partial": "PARSIAL", "none": "TIDAK ADA"}[
+            r.dns_optional_status
+        ]
         writer.writerow(
             {
                 "filename": r.filename,
@@ -65,6 +69,7 @@ def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
                 "static_routing": _cat_score(r.category_scores, "Static Routing"),
                 "end_device_dhcp": _cat_score(r.category_scores, "End Device DHCP"),
                 "penyimpanan": _cat_score(r.category_scores, "Penyimpanan"),
+                "dns_optional": dns_label,
                 "failed_check_ids": "; ".join(failed_ids),
                 "error_details": " | ".join(r.errors),
             }
@@ -115,17 +120,18 @@ def format_console_report(report: BatchReport, verbose: bool = False) -> str:
         lines.append(sep)
         return "\n".join(lines)
 
-    header = f"  {'No':>3}  {'NIM':<16} {'Nama / File':<28} {'Skor':>11} {'%':>6}  {'Status':<7} {'Salah'}"
+    header = f"  {'No':>3}  {'NIM':<16} {'Nama / File':<24} {'Skor':>10} {'%':>6}  {'Status':<7} {'DNS':<8} {'Salah'}"
     lines.append(header)
     lines.append(thin)
 
+    dns_short = {"complete": "LENGKAP", "partial": "PARSIAL", "none": "-"}
     for idx, r in enumerate(report.results, start=1):
-        label = (r.student_name or r.filename)[:27]
+        label = (r.student_name or r.filename)[:23]
         nim = (r.nim or "-")[:15]
         score_str = f"{r.score:.1f}/{r.max_score:.0f}"
         err_count = len(r.errors)
         lines.append(
-            f"  {idx:>3}  {nim:<16} {label:<28} {score_str:>11} {r.percentage:>5.1f}%  {r.status.upper():<7} {err_count}"
+            f"  {idx:>3}  {nim:<16} {label:<24} {score_str:>10} {r.percentage:>5.1f}%  {r.status.upper():<7} {dns_short[r.dns_optional_status]:<8} {err_count}"
         )
         if verbose or len(report.results) <= 15:
             for err in r.errors:

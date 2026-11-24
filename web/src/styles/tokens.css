@@ -50,6 +50,10 @@
   --status-fail-bg: #261411;
   --status-fail-border: #522821;
 
+  --status-optional-text: #a9b8e8;
+  --status-optional-bg: #141926;
+  --status-optional-border: #2a3652;
+
   --accent-soft-bg: rgba(226, 201, 143, 0.08);
   --accent-soft-border: rgba(226, 201, 143, 0.32);
 
@@ -151,6 +155,10 @@
   --status-fail-text: #9d2b1c;
   --status-fail-bg: #fceee9;
   --status-fail-border: #e4b4a8;
+
+  --status-optional-text: #2a4a8a;
+  --status-optional-bg: #ecf2fc;
+  --status-optional-border: #bdd0f0;
 
   --accent-soft-bg: rgba(23, 22, 20, 0.05);
   --accent-soft-border: rgba(23, 22, 20, 0.24);

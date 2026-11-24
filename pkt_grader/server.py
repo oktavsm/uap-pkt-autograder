@@ -38,6 +38,7 @@ CHECK_CATALOG = [
     {"id": "pc1_dhcp", "category": "End Device DHCP", "device": "PC1", "label": "DHCP lease valid PC1"},
     {"id": "pc2_dhcp", "category": "End Device DHCP", "device": "PC2", "label": "DHCP lease valid PC2"},
     {"id": "save_config", "category": "Penyimpanan", "device": "S1, R1, R2", "label": "Simpan konfigurasi (write memory)"},
+    {"id": "opt_dns", "category": "Opsional", "device": "R1, Server1", "label": "Konfigurasi DNS opsional (bonus, nilai tetap maks. 100)"},
 ]
 
 

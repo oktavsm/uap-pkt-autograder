@@ -52,6 +52,7 @@ const FALLBACK_RUBRIC: RubricConfig = {
     pc1_dhcp: 7,
     pc2_dhcp: 7,
     save_config: 6,
+    opt_dns: 0,
   },
 };
 
@@ -75,7 +76,7 @@ function RowStatusBadge({ status }: { status: StudentStatus }) {
   return (
     <span className="status-badge status-fail">
       <CloseIcon size={12} />
-      {status === "error" ? "ERROR" : "GAGAL"}
+      {status === "error" ? "GALAT" : "TIDAK LULUS"}
     </span>
   );
 }
@@ -155,7 +156,7 @@ export function App() {
       setSearch("");
       setSelectedKey(result.results[0]?.source_path ?? null);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Terjadi kesalahan saat menilai berkas.");
+      setErrorMsg(err instanceof Error ? err.message : "Terjadi kesalahan saat memproses berkas.");
     } finally {
       setLoading(false);
     }
@@ -168,7 +169,7 @@ export function App() {
     try {
       await downloadCsvReport(report);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Gagal mengekspor CSV.");
+      setErrorMsg(err instanceof Error ? err.message : "Gagal mengekspor berkas CSV.");
     } finally {
       setExportingCsv(false);
     }
@@ -214,7 +215,9 @@ export function App() {
     return filteredResults.find((r) => r.source_path === selectedKey) ?? filteredResults[0];
   }, [filteredResults, selectedKey]);
 
-  const totalRubricPoints = Object.values(rubric.weights).reduce((a, b) => a + b, 0);
+  const mandatoryRubricPoints = Object.entries(rubric.weights)
+    .filter(([key]) => key !== "opt_dns")
+    .reduce((sum, [, val]) => sum + val, 0);
 
   return (
     <div className="app-shell">
@@ -225,7 +228,7 @@ export function App() {
               <NetworkMarkIcon size={16} />
             </span>
             <span>
-              netgrade<span className="brand-dot">.uap</span>
+              UAP Autograder<span className="brand-dot"> · Jaringan Komputer PTI</span>
             </span>
           </a>
 
@@ -236,7 +239,7 @@ export function App() {
               onClick={() => setDrawerOpen(true)}
             >
               <SlidersIcon />
-              Rubrik ({totalRubricPoints} pts)
+              Rubrik ({mandatoryRubricPoints} poin)
             </button>
 
             {report && (
@@ -255,7 +258,7 @@ export function App() {
                   className="btn btn-secondary"
                   onClick={() => downloadJsonReport(report)}
                 >
-                  JSON
+                  Ekspor JSON
                 </button>
               </>
             )}
@@ -274,34 +277,21 @@ export function App() {
 
       <main id="top" className="main-content">
         <div className="container">
-          <section className="intake-section" aria-labelledby="hero-heading">
-            <div className="hero-copy">
-              <p className="eyebrow">UAP JARINGAN KOMPUTER PTI · PACKET TRACER 9.0</p>
-              <h1 id="hero-heading" className="hero-title">
-                Penilaian topologi <em>tanpa buka GUI.</em>
-              </h1>
-              <p className="hero-lead">
-                Unggah arsip ZIP atau kumpulan file .pkt/.pka mahasiswa. Mesin memeriksa VLAN,
-                trunk, DHCP pool, static route dua arah, lease PC1/PC2, serta write memory dalam
-                hitungan detik.
-              </p>
-
-              <dl className="spec-list">
-                <div className="spec-row">
-                  <dt>Format didukung</dt>
-                  <dd className="mono">.pkt, .pka, .zip</dd>
-                </div>
-                <div className="spec-row">
-                  <dt>Item evaluasi</dt>
-                  <dd className="mono">19 aturan · {totalRubricPoints} poin</dd>
-                </div>
-                <div className="spec-row">
-                  <dt>Ambang lulus</dt>
-                  <dd className="mono">&gt;= {rubric.pass_threshold}%</dd>
-                </div>
-              </dl>
+          <div className="page-header">
+            <h1 className="page-title">Evaluasi Konfigurasi Cisco Packet Tracer</h1>
+            <p className="page-subtitle">
+              Pemeriksaan otomatis konfigurasi VLAN, trunk, DHCP, static routing, DHCP client,
+              penyimpanan konfigurasi, serta indikator DNS opsional (skor maksimum 100).
+            </p>
+            <div className="page-meta-bar">
+              <span>Format: .pkt, .pka, .zip</span>
+              <span>Indikator wajib: 19 ({mandatoryRubricPoints} poin)</span>
+              <span>Indikator opsional: DNS</span>
+              <span>Batas lulus: &gt;= {rubric.pass_threshold}%</span>
             </div>
+          </div>
 
+          <section className="intake-section" aria-label="Panel unggah berkas">
             <Dropzone
               files={queuedFiles}
               loading={loading}
@@ -322,14 +312,14 @@ export function App() {
           )}
 
           {!report && !errorMsg && (
-            <section className="results-section" aria-label="Status hasil">
+            <section className="results-section" aria-label="Status evaluasi">
               <div className="empty-state">
-                <p className="metric-label">MENUNGGU BERKAS</p>
-                <h2 className="empty-title">Belum ada hasil penilaian</h2>
+                <p className="metric-label">STATUS EVALUASI</p>
+                <h2 className="empty-title">Belum terdapat data penilaian</h2>
                 <p className="empty-desc">
-                  Tarik file .zip kelas atau beberapa file .pkt ke panel unggah di atas lalu klik
-                  Nilai sekarang. Hasil per mahasiswa, kesalahan konfigurasi, dan tombol unduh CSV
-                  akan tampil di sini.
+                  Unggah arsip .zip atau kumpulan berkas .pkt/.pka pada panel di atas kemudian tekan
+                  Mulai evaluasi untuk menampilkan ringkasan skor, rincian kesalahan, dan berkas
+                  ekspor CSV.
                 </p>
               </div>
             </section>
@@ -339,11 +329,11 @@ export function App() {
             <section className="results-section" aria-label="Ringkasan dan daftar nilai">
               <div className="summary-grid">
                 <div className="metric-hero-card">
-                  <span className="metric-label">RATA-RATA SKOR KELAS</span>
+                  <span className="metric-label">RATA-RATA SKOR</span>
                   <div className="metric-hero-value">{report.summary.average_score.toFixed(1)}%</div>
                   <p className="metric-sub">
-                    {report.summary.passed} dari {report.summary.total} mahasiswa lulus (
-                    {report.summary.pass_rate.toFixed(1)}%).
+                    {report.summary.passed} dari {report.summary.total} berkas memenuhi batas lulus
+                    ({report.summary.pass_rate.toFixed(1)}%).
                   </p>
                 </div>
 
@@ -367,9 +357,9 @@ export function App() {
                 </div>
 
                 <div className="common-failures-panel">
-                  <span className="metric-label">KESALAHAN PALING SERING</span>
+                  <span className="metric-label">KETIDAKSESUAIAN TERBANYAK</span>
                   {report.summary.common_failures.length === 0 ? (
-                    <p className="metric-sub">Tidak ada kesalahan di seluruh berkas.</p>
+                    <p className="metric-sub">Tidak ditemukan ketidaksesuaian pada seluruh berkas.</p>
                   ) : (
                     <div className="failure-bars">
                       {report.summary.common_failures.slice(0, 4).map((item) => (
@@ -402,13 +392,13 @@ export function App() {
                       <SearchIcon />
                     </span>
                     <label htmlFor="student-search" className="sr-only">
-                      Cari NIM, nama mahasiswa, atau nama file
+                      Cari NIM, nama mahasiswa, atau nama berkas
                     </label>
                     <input
                       id="student-search"
                       type="search"
                       className="search-input"
-                      placeholder="Cari NIM, nama mahasiswa, atau nama file..."
+                      placeholder="Cari NIM, nama mahasiswa, atau nama berkas..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
@@ -420,7 +410,7 @@ export function App() {
                         ["all", "Semua", counts.all],
                         ["pass", "Lulus", counts.pass],
                         ["partial", "Parsial", counts.partial],
-                        ["fail", "Gagal", counts.fail],
+                        ["fail", "Tidak lulus", counts.fail],
                       ] as [StatusFilter, string, number][]
                     ).map(([key, label, count]) => (
                       <button
@@ -447,10 +437,10 @@ export function App() {
 
               {filteredResults.length === 0 ? (
                 <div className="empty-state">
-                  <h3 className="empty-title">Tidak ada hasil yang cocok</h3>
+                  <h3 className="empty-title">Data tidak ditemukan</h3>
                   <p className="empty-desc">
-                    Ubah kata kunci pencarian atau pilih filter status lain untuk melihat daftar
-                    mahasiswa.
+                    Ubah kata kunci pencarian atau pilih filter status lain untuk menampilkan daftar
+                    hasil evaluasi.
                   </p>
                 </div>
               ) : (
@@ -473,7 +463,15 @@ export function App() {
                                 </span>
                                 <span className="student-meta">
                                   <span>{student.nim || "Tanpa NIM"}</span>
-                                  <span>{student.errors.length} salah</span>
+                                  <span>{student.errors.length} tidak sesuai</span>
+                                  {student.dns_optional_status !== "none" && (
+                                    <span>
+                                      DNS:{" "}
+                                      {student.dns_optional_status === "complete"
+                                        ? "lengkap"
+                                        : "parsial"}
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                               <div className="student-score-col">
@@ -497,7 +495,7 @@ export function App() {
 
       <footer className="site-footer">
         <div className="container footer-inner">
-          <span>netgrade.uap · Offline Semantic Packet Tracer Autograder</span>
+          <span>UAP Jaringan Komputer PTI · Sistem Evaluasi Otomatis Packet Tracer</span>
           <span className="mono">CLI: pkt-grade submissions.zip --csv nilai.csv</span>
         </div>
       </footer>

@@ -26,6 +26,10 @@ class ParsedDevice:
     gateway: str = ""
     dhcp_enabled: bool = False
     dhcp_server_ip: str = ""
+    up_method: str = ""
+    dns_client_ip: str = ""
+    dns_server_enabled: bool = False
+    dns_records: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -68,6 +72,24 @@ def _read_config_lines(el: ET.Element | None) -> str:
         return ""
     lines = [(line.text or "") for line in el.findall("LINE")]
     return "\n".join(lines).strip()
+
+
+def _extract_dns_server(eng: ET.Element) -> tuple[bool, list[str]]:
+    dns_srv = eng.find("DNS_SERVER")
+    if dns_srv is None:
+        return False, []
+    enabled = (dns_srv.findtext("ENABLED") or "").strip().lower() in ("1", "true")
+    records: list[str] = []
+    db = dns_srv.find("NAMESERVER-DATABASE")
+    if db is not None:
+        for rec in db:
+            domain = (rec.findtext("NAME") or rec.findtext("DOMAIN") or rec.attrib.get("name", "")).strip()
+            addr = (rec.findtext("IP") or rec.findtext("ADDRESS") or rec.findtext("VALUE") or "").strip()
+            if domain and addr:
+                records.append(f"{domain} -> {addr}")
+            elif domain:
+                records.append(domain)
+    return enabled, records
 
 
 def parse_pkt_bytes(data: bytes) -> ParsedLab:
@@ -121,23 +143,36 @@ def parse_pkt_bytes(data: bytes) -> ParsedLab:
         gateway = (eng.findtext("GATEWAY") or "").strip()
         dhcp_enabled = False
         dhcp_server_ip = ""
+        up_method = ""
+        dns_client_ip = (eng.findtext("./DNS_CLIENT/SERVER_IP") or "").strip()
 
         for port_el in eng.findall(".//PORT"):
+            port_type = (port_el.findtext("TYPE") or "").strip().lower()
+            if port_type == "ebluetooth":
+                continue
+
             p_ip = (port_el.findtext("IP") or "").strip()
             p_sub = (port_el.findtext("SUBNET") or "").strip()
             p_gw = (port_el.findtext("PORT_GATEWAY") or "").strip()
+            p_dns = (port_el.findtext("PORT_DNS") or "").strip()
             p_dhcp = (port_el.findtext("PORT_DHCP_ENABLE") or "").strip().lower() == "true"
             p_dhcp_srv = (port_el.findtext("DHCP_SERVER_IP") or "").strip()
+            p_up = (port_el.findtext("UP_METHOD") or "").strip()
 
-            if p_ip or p_dhcp or p_gw:
+            if p_ip or p_dhcp or p_gw or (p_dhcp_srv and p_dhcp_srv != "0.0.0.0"):
                 ip = p_ip
                 subnet = p_sub
                 if p_gw:
                     gateway = p_gw
+                if p_dns and not dns_client_ip:
+                    dns_client_ip = p_dns
                 dhcp_enabled = p_dhcp
                 if p_dhcp_srv and p_dhcp_srv != "0.0.0.0":
                     dhcp_server_ip = p_dhcp_srv
+                up_method = p_up
                 break
+
+        dns_server_enabled, dns_records = _extract_dns_server(eng)
 
         devices_by_name[name] = ParsedDevice(
             name=name,
@@ -153,6 +188,10 @@ def parse_pkt_bytes(data: bytes) -> ParsedLab:
             gateway=gateway,
             dhcp_enabled=dhcp_enabled,
             dhcp_server_ip=dhcp_server_ip,
+            up_method=up_method,
+            dns_client_ip=dns_client_ip,
+            dns_server_enabled=dns_server_enabled,
+            dns_records=dns_records,
         )
 
     links: list[ParsedLink] = []
