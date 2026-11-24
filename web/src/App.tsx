@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { downloadCsvReport, downloadJsonReport, fetchRubric, gradeFiles } from "./api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  deleteHistoryRun,
+  downloadCsvReport,
+  downloadHistoryCsv,
+  downloadJsonReport,
+  fetchHistory,
+  fetchHistoryRun,
+  fetchRubric,
+  gradeFiles,
+} from "./api";
 import { Dropzone } from "./components/Dropzone";
+import { HistoryView } from "./components/HistoryView";
 import {
   CheckIcon,
   CloseIcon,
@@ -15,8 +25,17 @@ import {
 import { RubricDrawer } from "./components/RubricDrawer";
 import { SortListbox } from "./components/SortListbox";
 import { StudentDetail } from "./components/StudentDetail";
-import type { BatchReport, RubricCheckMeta, RubricConfig, StudentStatus } from "./types";
+import {
+  PRODI_CLASSES,
+  type BatchReport,
+  type HistoryRunMeta,
+  type ProdiCode,
+  type RubricCheckMeta,
+  type RubricConfig,
+  type StudentStatus,
+} from "./types";
 
+type AppView = "evaluate" | "history";
 type StatusFilter = "all" | StudentStatus;
 type SortKey = "score_desc" | "score_asc" | "nim_asc" | "name_asc";
 
@@ -81,11 +100,31 @@ function RowStatusBadge({ status }: { status: StudentStatus }) {
   );
 }
 
+function formatRunDate(iso?: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 export function App() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const saved = window.localStorage.getItem("netgrade-theme");
     return saved === "light" ? "light" : "dark";
   });
+
+  const [view, setView] = useState<AppView>("evaluate");
+  const [prodi, setProdi] = useState<ProdiCode>("PTI");
+  const [kelas, setKelas] = useState<string>("A");
+  const [note, setNote] = useState<string>("");
 
   const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
   const [rubric, setRubric] = useState<RubricConfig>(FALLBACK_RUBRIC);
@@ -98,6 +137,12 @@ export function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [report, setReport] = useState<BatchReport | null>(null);
 
+  const [historyRuns, setHistoryRuns] = useState<HistoryRunMeta[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [openingRunId, setOpeningRunId] = useState<string | null>(null);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [exportingHistory, setExportingHistory] = useState(false);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortKey>("score_desc");
@@ -107,6 +152,18 @@ export function App() {
     document.documentElement.setAttribute("data-theme", theme);
     window.localStorage.setItem("netgrade-theme", theme);
   }, [theme]);
+
+  const refreshHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const items = await fetchHistory();
+      setHistoryRuns(items);
+    } catch {
+      // Keep existing state if server momentarily unavailable
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchRubric()
@@ -118,7 +175,15 @@ export function App() {
       .catch(() => {
         // Fallback rubric already loaded
       });
-  }, []);
+    void refreshHistory();
+  }, [refreshHistory]);
+
+  const handleProdiChange = (nextProdi: ProdiCode) => {
+    setProdi(nextProdi);
+    if (!PRODI_CLASSES[nextProdi].includes(kelas)) {
+      setKelas(PRODI_CLASSES[nextProdi][0]);
+    }
+  };
 
   const handleAddFiles = (incoming: File[]) => {
     setErrorMsg(null);
@@ -150,15 +215,61 @@ export function App() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const result = await gradeFiles(queuedFiles, rubric);
+      const result = await gradeFiles(queuedFiles, rubric, { prodi, kelas, note });
       setReport(result);
       setStatusFilter("all");
       setSearch("");
       setSelectedKey(result.results[0]?.source_path ?? null);
+      void refreshHistory();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Terjadi kesalahan saat memproses berkas.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenHistoryRun = async (runId: string) => {
+    setOpeningRunId(runId);
+    setErrorMsg(null);
+    try {
+      const loaded = await fetchHistoryRun(runId);
+      setReport(loaded);
+      setStatusFilter("all");
+      setSearch("");
+      setSelectedKey(loaded.results[0]?.source_path ?? null);
+      setView("evaluate");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal membuka riwayat evaluasi.");
+    } finally {
+      setOpeningRunId(null);
+    }
+  };
+
+  const handleDeleteHistoryRun = async (runId: string) => {
+    setDeletingRunId(runId);
+    setErrorMsg(null);
+    try {
+      await deleteHistoryRun(runId);
+      setHistoryRuns((prev) => prev.filter((r) => r.id !== runId));
+      if (report?.run_id === runId) {
+        setReport(null);
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal menghapus riwayat.");
+    } finally {
+      setDeletingRunId(null);
+    }
+  };
+
+  const handleExportHistoryCsv = async (p?: string, k?: string) => {
+    setExportingHistory(true);
+    setErrorMsg(null);
+    try {
+      await downloadHistoryCsv(p, k);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal mengunduh rekap CSV.");
+    } finally {
+      setExportingHistory(false);
     }
   };
 
@@ -234,6 +345,33 @@ export function App() {
           </a>
 
           <div className="topbar-actions">
+            <div className="filter-group" role="tablist" aria-label="Navigasi tampilan">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "evaluate"}
+                className="filter-btn"
+                aria-pressed={view === "evaluate"}
+                onClick={() => setView("evaluate")}
+              >
+                Evaluasi
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "history"}
+                className="filter-btn"
+                aria-pressed={view === "history"}
+                onClick={() => {
+                  setView("history");
+                  void refreshHistory();
+                }}
+              >
+                <span>Riwayat</span>
+                <span className="filter-count">{historyRuns.length}</span>
+              </button>
+            </div>
+
             <button
               type="button"
               className="btn btn-secondary"
@@ -243,7 +381,7 @@ export function App() {
               Rubrik ({mandatoryRubricPoints} poin)
             </button>
 
-            {report && (
+            {report && view === "evaluate" && (
               <>
                 <button
                   type="button"
@@ -288,19 +426,8 @@ export function App() {
             </div>
           </div>
 
-          <section className="intake-section" aria-label="Panel unggah berkas">
-            <Dropzone
-              files={queuedFiles}
-              loading={loading}
-              onAddFiles={handleAddFiles}
-              onRemoveFile={handleRemoveFile}
-              onClearFiles={handleClearFiles}
-              onRunGrade={handleRunGrade}
-            />
-          </section>
-
           {errorMsg && (
-            <div className="results-section">
+            <div className="error-wrap">
               <div className="alert" role="alert">
                 <CloseIcon size={16} />
                 <div>{errorMsg}</div>
@@ -308,184 +435,234 @@ export function App() {
             </div>
           )}
 
-          {!report && !errorMsg && (
-            <section className="results-section" aria-label="Status evaluasi">
-              <div className="empty-state">
-                <p className="metric-label">STATUS EVALUASI</p>
-                <h2 className="empty-title">Belum terdapat data penilaian</h2>
-                <p className="empty-desc">
-                  Unggah arsip .zip atau kumpulan berkas .pkt/.pka pada panel di atas kemudian tekan
-                  Mulai evaluasi untuk menampilkan ringkasan skor, rincian kesalahan, dan berkas
-                  ekspor CSV.
-                </p>
-              </div>
-            </section>
-          )}
+          {view === "history" ? (
+            <HistoryView
+              runs={historyRuns}
+              loading={historyLoading}
+              openingId={openingRunId}
+              deletingId={deletingRunId}
+              exporting={exportingHistory}
+              onOpenRun={handleOpenHistoryRun}
+              onDeleteRun={handleDeleteHistoryRun}
+              onExportCombinedCsv={handleExportHistoryCsv}
+            />
+          ) : (
+            <>
+              <section className="intake-section" aria-label="Panel unggah berkas">
+                <Dropzone
+                  files={queuedFiles}
+                  loading={loading}
+                  prodi={prodi}
+                  kelas={kelas}
+                  note={note}
+                  onProdiChange={handleProdiChange}
+                  onKelasChange={setKelas}
+                  onNoteChange={setNote}
+                  onAddFiles={handleAddFiles}
+                  onRemoveFile={handleRemoveFile}
+                  onClearFiles={handleClearFiles}
+                  onRunGrade={handleRunGrade}
+                />
+              </section>
 
-          {report && (
-            <section className="results-section" aria-label="Ringkasan dan daftar nilai">
-              <div className="summary-grid">
-                <div className="metric-hero-card">
-                  <span className="metric-label">RATA-RATA SKOR</span>
-                  <div className="metric-hero-value">{report.summary.average_score.toFixed(1)}%</div>
-                  <p className="metric-sub">
-                    {report.summary.passed} dari {report.summary.total} berkas memenuhi batas lulus
-                    ({report.summary.pass_rate.toFixed(1)}%).
-                  </p>
-                </div>
+              {!report && !errorMsg && (
+                <section className="results-section" aria-label="Status evaluasi">
+                  <div className="empty-state">
+                    <p className="metric-label">STATUS EVALUASI</p>
+                    <h2 className="empty-title">Belum terdapat data penilaian</h2>
+                    <p className="empty-desc">
+                      Pilih prodi dan kelas, unggah arsip .zip atau kumpulan berkas .pkt/.pka pada
+                      panel di atas, lalu tekan Mulai evaluasi. Hasil akan tersimpan otomatis pada
+                      tab Riwayat.
+                    </p>
+                  </div>
+                </section>
+              )}
 
-                <div className="summary-stats-panel">
-                  <div className="stat-cell">
-                    <span className="metric-label">TOTAL BERKAS</span>
-                    <span className="stat-value">{report.summary.total}</span>
-                  </div>
-                  <div className="stat-cell">
-                    <span className="metric-label">MEDIAN</span>
-                    <span className="stat-value">{report.summary.median_score.toFixed(1)}%</span>
-                  </div>
-                  <div className="stat-cell">
-                    <span className="metric-label">TERTINGGI</span>
-                    <span className="stat-value">{report.summary.highest_score.toFixed(1)}%</span>
-                  </div>
-                  <div className="stat-cell">
-                    <span className="metric-label">TERENDAH</span>
-                    <span className="stat-value">{report.summary.lowest_score.toFixed(1)}%</span>
-                  </div>
-                </div>
-
-                <div className="common-failures-panel">
-                  <span className="metric-label">KETIDAKSESUAIAN TERBANYAK</span>
-                  {report.summary.common_failures.length === 0 ? (
-                    <p className="metric-sub">Tidak ditemukan ketidaksesuaian pada seluruh berkas.</p>
-                  ) : (
-                    <div className="failure-bars">
-                      {report.summary.common_failures.slice(0, 4).map((item) => (
-                        <div key={item.check_id} className="failure-bar-item">
-                          <div className="failure-bar-top">
-                            <span>
-                              <strong className="mono">{item.device}</strong> {item.title}
-                            </span>
-                            <span className="mono metric-label">
-                              {item.count}/{report.summary.total} ({item.rate}%)
-                            </span>
-                          </div>
-                          <div className="failure-track" aria-hidden="true">
-                            <div
-                              className="failure-fill"
-                              style={{ width: `${Math.min(100, item.rate)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
+              {report && (
+                <section className="results-section" aria-label="Ringkasan dan daftar nilai">
+                  {report.class_label && (
+                    <div className="run-context-bar">
+                      <span className="class-badge">{report.class_label}</span>
+                      {report.created_at && (
+                        <span className="metric-label">
+                          Tersimpan: {formatRunDate(report.created_at)}
+                        </span>
+                      )}
+                      {report.note && <span className="history-note">{report.note}</span>}
                     </div>
                   )}
-                </div>
-              </div>
 
-              <div className="toolbar">
-                <div className="toolbar-row">
-                  <div className="search-wrap">
-                    <span className="search-icon">
-                      <SearchIcon />
-                    </span>
-                    <label htmlFor="student-search" className="sr-only">
-                      Cari NIM, nama mahasiswa, atau nama berkas
-                    </label>
-                    <input
-                      id="student-search"
-                      type="search"
-                      className="search-input"
-                      placeholder="Cari NIM, nama mahasiswa, atau nama berkas..."
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                  </div>
+                  <div className="summary-grid">
+                    <div className="metric-hero-card">
+                      <span className="metric-label">RATA-RATA SKOR</span>
+                      <div className="metric-hero-value">
+                        {report.summary.average_score.toFixed(1)}%
+                      </div>
+                      <p className="metric-sub">
+                        {report.summary.passed} dari {report.summary.total} berkas memenuhi batas
+                        lulus ({report.summary.pass_rate.toFixed(1)}%).
+                      </p>
+                    </div>
 
-                  <div className="filter-group" role="group" aria-label="Filter status kelulusan">
-                    {(
-                      [
-                        ["all", "Semua", counts.all],
-                        ["pass", "Lulus", counts.pass],
-                        ["partial", "Parsial", counts.partial],
-                        ["fail", "Tidak lulus", counts.fail],
-                      ] as [StatusFilter, string, number][]
-                    ).map(([key, label, count]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        className="filter-btn"
-                        aria-pressed={statusFilter === key}
-                        onClick={() => setStatusFilter(key)}
-                      >
-                        <span>{label}</span>
-                        <span className="filter-count">{count}</span>
-                      </button>
-                    ))}
-                  </div>
+                    <div className="summary-stats-panel">
+                      <div className="stat-cell">
+                        <span className="metric-label">TOTAL BERKAS</span>
+                        <span className="stat-value">{report.summary.total}</span>
+                      </div>
+                      <div className="stat-cell">
+                        <span className="metric-label">MEDIAN</span>
+                        <span className="stat-value">{report.summary.median_score.toFixed(1)}%</span>
+                      </div>
+                      <div className="stat-cell">
+                        <span className="metric-label">TERTINGGI</span>
+                        <span className="stat-value">
+                          {report.summary.highest_score.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="stat-cell">
+                        <span className="metric-label">TERENDAH</span>
+                        <span className="stat-value">{report.summary.lowest_score.toFixed(1)}%</span>
+                      </div>
+                    </div>
 
-                  <SortListbox
-                    label="Urutkan hasil"
-                    value={sortBy}
-                    options={SORT_OPTIONS}
-                    onChange={(v) => setSortBy(v as SortKey)}
-                  />
-                </div>
-              </div>
-
-              {filteredResults.length === 0 ? (
-                <div className="empty-state">
-                  <h3 className="empty-title">Data tidak ditemukan</h3>
-                  <p className="empty-desc">
-                    Ubah kata kunci pencarian atau pilih filter status lain untuk menampilkan daftar
-                    hasil evaluasi.
-                  </p>
-                </div>
-              ) : (
-                <div className="workspace-split">
-                  <nav className="ledger-card" aria-label="Daftar nilai mahasiswa">
-                    <ul className="ledger-list">
-                      {filteredResults.map((student) => {
-                        const isSelected = activeStudent?.source_path === student.source_path;
-                        return (
-                          <li key={student.source_path} className="ledger-item">
-                            <button
-                              type="button"
-                              className="ledger-row-btn"
-                              aria-selected={isSelected}
-                              onClick={() => setSelectedKey(student.source_path)}
-                            >
-                              <div className="student-ident">
-                                <span className="student-name">
-                                  {student.student_name || student.filename}
+                    <div className="common-failures-panel">
+                      <span className="metric-label">KETIDAKSESUAIAN TERBANYAK</span>
+                      {report.summary.common_failures.length === 0 ? (
+                        <p className="metric-sub">
+                          Tidak ditemukan ketidaksesuaian pada seluruh berkas.
+                        </p>
+                      ) : (
+                        <div className="failure-bars">
+                          {report.summary.common_failures.slice(0, 4).map((item) => (
+                            <div key={item.check_id} className="failure-bar-item">
+                              <div className="failure-bar-top">
+                                <span>
+                                  <strong className="mono">{item.device}</strong> {item.title}
                                 </span>
-                                <span className="student-meta">
-                                  <span>{student.nim || "Tanpa NIM"}</span>
-                                  <span>{student.errors.length} tidak sesuai</span>
-                                  {student.dns_optional_status !== "none" && (
-                                    <span>
-                                      DNS:{" "}
-                                      {student.dns_optional_status === "complete"
-                                        ? "lengkap"
-                                        : "parsial"}
+                                <span className="mono metric-label">
+                                  {item.count}/{report.summary.total} ({item.rate}%)
+                                </span>
+                              </div>
+                              <div className="failure-track" aria-hidden="true">
+                                <div
+                                  className="failure-fill"
+                                  style={{ width: `${Math.min(100, item.rate)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="toolbar">
+                    <div className="toolbar-row">
+                      <div className="search-wrap">
+                        <span className="search-icon">
+                          <SearchIcon />
+                        </span>
+                        <label htmlFor="student-search" className="sr-only">
+                          Cari NIM, nama mahasiswa, atau nama berkas
+                        </label>
+                        <input
+                          id="student-search"
+                          type="search"
+                          className="search-input"
+                          placeholder="Cari NIM, nama mahasiswa, atau nama berkas..."
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="filter-group" role="group" aria-label="Filter status kelulusan">
+                        {(
+                          [
+                            ["all", "Semua", counts.all],
+                            ["pass", "Lulus", counts.pass],
+                            ["partial", "Parsial", counts.partial],
+                            ["fail", "Tidak lulus", counts.fail],
+                          ] as [StatusFilter, string, number][]
+                        ).map(([key, label, count]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className="filter-btn"
+                            aria-pressed={statusFilter === key}
+                            onClick={() => setStatusFilter(key)}
+                          >
+                            <span>{label}</span>
+                            <span className="filter-count">{count}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      <SortListbox
+                        label="Urutkan hasil"
+                        value={sortBy}
+                        options={SORT_OPTIONS}
+                        onChange={(v) => setSortBy(v as SortKey)}
+                      />
+                    </div>
+                  </div>
+
+                  {filteredResults.length === 0 ? (
+                    <div className="empty-state">
+                      <h3 className="empty-title">Data tidak ditemukan</h3>
+                      <p className="empty-desc">
+                        Ubah kata kunci pencarian atau pilih filter status lain untuk menampilkan
+                        daftar hasil evaluasi.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="workspace-split">
+                      <nav className="ledger-card" aria-label="Daftar nilai mahasiswa">
+                        <ul className="ledger-list">
+                          {filteredResults.map((student) => {
+                            const isSelected = activeStudent?.source_path === student.source_path;
+                            return (
+                              <li key={student.source_path} className="ledger-item">
+                                <button
+                                  type="button"
+                                  className="ledger-row-btn"
+                                  aria-selected={isSelected}
+                                  onClick={() => setSelectedKey(student.source_path)}
+                                >
+                                  <div className="student-ident">
+                                    <span className="student-name">
+                                      {student.student_name || student.filename}
                                     </span>
-                                  )}
-                                </span>
-                              </div>
-                              <div className="student-score-col">
-                                <span className="score-num">{student.percentage.toFixed(0)}%</span>
-                                <RowStatusBadge status={student.status} />
-                              </div>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </nav>
+                                    <span className="student-meta">
+                                      <span>{student.nim || "Tanpa NIM"}</span>
+                                      <span>{student.errors.length} tidak sesuai</span>
+                                      {student.dns_optional_status !== "none" && (
+                                        <span>
+                                          DNS:{" "}
+                                          {student.dns_optional_status === "complete"
+                                            ? "lengkap"
+                                            : "parsial"}
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div className="student-score-col">
+                                    <span className="score-num">{student.percentage.toFixed(0)}%</span>
+                                    <RowStatusBadge status={student.status} />
+                                  </div>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </nav>
 
-                  {activeStudent && <StudentDetail student={activeStudent} />}
-                </div>
+                      {activeStudent && <StudentDetail student={activeStudent} />}
+                    </div>
+                  )}
+                </section>
               )}
-            </section>
+            </>
           )}
         </div>
       </main>
@@ -493,7 +670,7 @@ export function App() {
       <footer className="site-footer">
         <div className="container footer-inner">
           <span>UAP Jaringan Komputer TI/PTI · Sistem Evaluasi Otomatis Packet Tracer</span>
-          <span className="mono">CLI: pkt-grade submissions.zip --csv nilai.csv</span>
+          <span className="mono">CLI: pkt-grade submissions.zip --prodi TI --kelas A --csv nilai.csv</span>
         </div>
       </footer>
 

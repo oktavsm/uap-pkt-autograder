@@ -11,6 +11,10 @@ from pkt_grader.models import BatchReport
 
 
 CSV_COLUMNS = [
+    "prodi",
+    "kelas",
+    "catatan",
+    "evaluated_at",
     "filename",
     "nim",
     "student_name",
@@ -39,21 +43,22 @@ def _cat_score(cat_scores: dict[str, dict[str, float]], key: str) -> str:
     return f"{bucket['earned']:g}/{bucket['possible']:g}"
 
 
-def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
-    """Serialize a BatchReport to CSV text (UTF-8 BOM optional for Excel compatibility)."""
-    buf = io.StringIO()
-    if include_bom:
-        buf.write("\ufeff")
-    writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
-    writer.writeheader()
-
+def _iter_csv_rows(report: BatchReport) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    class_label = report.class_label or (
+        f"{report.prodi} - {report.kelas}" if report.prodi and report.kelas else ""
+    )
     for r in report.results:
         failed_ids = [c.id for c in r.checks if not c.optional and c.status != "pass"]
         dns_label = {"complete": "LENGKAP", "partial": "PARSIAL", "none": "TIDAK ADA"}[
             r.dns_optional_status
         ]
-        writer.writerow(
+        rows.append(
             {
+                "prodi": report.prodi,
+                "kelas": class_label,
+                "catatan": report.note,
+                "evaluated_at": report.created_at or "",
                 "filename": r.filename,
                 "nim": r.nim,
                 "student_name": r.student_name,
@@ -74,6 +79,24 @@ def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
                 "error_details": " | ".join(r.errors),
             }
         )
+    return rows
+
+
+def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
+    """Serialize a BatchReport to CSV text (UTF-8 BOM optional for Excel compatibility)."""
+    return batches_to_csv_string([report], include_bom=include_bom)
+
+
+def batches_to_csv_string(reports: list[BatchReport], include_bom: bool = True) -> str:
+    """Serialize one or more BatchReports into a unified CSV export."""
+    buf = io.StringIO()
+    if include_bom:
+        buf.write("\ufeff")
+    writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS)
+    writer.writeheader()
+    for rep in reports:
+        for row in _iter_csv_rows(rep):
+            writer.writerow(row)
     return buf.getvalue()
 
 

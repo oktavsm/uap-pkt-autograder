@@ -55,6 +55,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override ambang kelulusan dalam persen (default: 70).",
     )
     parser.add_argument(
+        "--prodi",
+        choices=["PTI", "TI", "pti", "ti"],
+        default="",
+        help="Program studi untuk label hasil/CSV (PTI atau TI).",
+    )
+    parser.add_argument(
+        "--kelas",
+        default="",
+        help="Kelas untuk label hasil/CSV (PTI: A-D, TI: A-G).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -74,6 +85,21 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     report = grade_inputs(args.inputs, rubric=rubric)
+    if args.prodi or args.kelas:
+        from pkt_grader.history import format_class_label, validate_prodi_kelas
+
+        try:
+            clean_p, clean_k = validate_prodi_kelas(args.prodi, args.kelas)
+        except ValueError as exc:
+            print(f"Error kelas/prodi: {exc}", file=sys.stderr)
+            return 2
+        report = report.model_copy(
+            update={
+                "prodi": clean_p,
+                "kelas": clean_k,
+                "class_label": format_class_label(clean_p, clean_k),
+            }
+        )
     print(format_console_report(report, verbose=args.verbose))
 
     if args.csv_path:

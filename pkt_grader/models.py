@@ -115,7 +115,28 @@ class BatchSummary(BaseModel):
     common_failures: list[dict[str, object]] = Field(default_factory=list)
 
 
+class HistoryRunMeta(BaseModel):
+    id: str
+    created_at: str
+    prodi: str = ""
+    kelas: str = ""
+    class_label: str = "Umum"
+    note: str = ""
+    total: int
+    passed: int
+    failed: int
+    parse_errors: int
+    average_score: float
+    pass_rate: float
+
+
 class BatchReport(BaseModel):
+    run_id: str | None = None
+    created_at: str | None = None
+    prodi: str = ""
+    kelas: str = ""
+    class_label: str = ""
+    note: str = ""
     rubric: RubricConfig
     summary: BatchSummary
     results: list[StudentReport] = Field(default_factory=list)

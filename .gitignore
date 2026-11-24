@@ -10,4 +10,5 @@ web/dist/
 *.tsbuildinfo
 *.csv
 *.log
+data/
 .DS_Store

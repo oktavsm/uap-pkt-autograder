@@ -317,20 +317,48 @@ def test_zip_archive_cli_and_api(tmp_path: Path) -> None:
     assert "245150600111001" in csv_content
     assert "100.00" in csv_content
 
-    # FastAPI test
-    client = TestClient(create_app())
+    # FastAPI test (isolated SQLite history DB)
+    client = TestClient(create_app(db_path=tmp_path / "test_history.db"))
     assert client.get("/api/health").status_code == 200
     assert client.get("/api/rubric").status_code == 200
+    assert client.get("/api/classes").json() == {
+        "PTI": ["A", "B", "C", "D"],
+        "TI": ["A", "B", "C", "D", "E", "F", "G"],
+    }
 
     res = client.post(
         "/api/grade",
         files=[("files", ("kelas_a.zip", zip_bytes, "application/zip"))],
+        data={"prodi": "TI", "kelas": "C", "note": "Sesi Pagi"},
     )
     assert res.status_code == 200
     payload = res.json()
     assert payload["summary"]["total"] == 2
     assert payload["summary"]["passed"] == 1
     assert payload["summary"]["average_score"] == 55.5
+    assert payload["class_label"] == "TI - C"
+    run_id = payload["run_id"]
+    assert run_id
+
+    # Verify history persistence & filters
+    hist_all = client.get("/api/history").json()
+    assert len(hist_all) == 1
+    assert hist_all[0]["class_label"] == "TI - C"
+    assert client.get("/api/history?prodi=PTI").json() == []
+    assert len(client.get("/api/history?prodi=TI&kelas=C").json()) == 1
+
+    detail = client.get(f"/api/history/{run_id}").json()
+    assert detail["summary"]["total"] == 2
+    assert detail["class_label"] == "TI - C"
+
+    rekap_csv = client.get("/api/history/export/csv?prodi=TI")
+    assert rekap_csv.status_code == 200
+    assert "TI - C" in rekap_csv.text
+    assert "245150600111001" in rekap_csv.text
+
+    del_res = client.delete(f"/api/history/{run_id}")
+    assert del_res.status_code == 200
+    assert client.get("/api/history").json() == []
 
     csv_res = client.post("/api/export/csv", json=payload)
     assert csv_res.status_code == 200

@@ -1,6 +1,7 @@
 export type CheckStatus = "pass" | "partial" | "fail" | "optional";
 export type StudentStatus = "pass" | "partial" | "fail" | "error";
 export type DnsOptionalStatus = "complete" | "partial" | "none";
+export type ProdiCode = "PTI" | "TI";
 export type DiffLineKind =
   | "header"
   | "match"
@@ -8,6 +9,11 @@ export type DiffLineKind =
   | "extra"
   | "optional_missing"
   | "optional_match";
+
+export const PRODI_CLASSES: Record<ProdiCode, string[]> = {
+  PTI: ["A", "B", "C", "D"],
+  TI: ["A", "B", "C", "D", "E", "F", "G"],
+};
 
 export interface DiffLine {
   kind: DiffLineKind;
@@ -34,6 +40,7 @@ export interface RubricCheckMeta {
 export interface RubricResponse {
   rubric: RubricConfig;
   checks: RubricCheckMeta[];
+  classes?: Record<ProdiCode, string[]>;
 }
 
 export interface CheckResult {
@@ -109,7 +116,28 @@ export interface BatchSummary {
   common_failures: CommonFailure[];
 }
 
+export interface HistoryRunMeta {
+  id: string;
+  created_at: string;
+  prodi: string;
+  kelas: string;
+  class_label: string;
+  note: string;
+  total: number;
+  passed: number;
+  failed: number;
+  parse_errors: number;
+  average_score: number;
+  pass_rate: number;
+}
+
 export interface BatchReport {
+  run_id?: string | null;
+  created_at?: string | null;
+  prodi?: string;
+  kelas?: string;
+  class_label?: string;
+  note?: string;
   rubric: RubricConfig;
   summary: BatchSummary;
   results: StudentReport[];

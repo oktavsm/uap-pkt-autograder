@@ -2,7 +2,11 @@ services:
   autograder:
     image: oktaavsm/uap-pkt-autograder:latest
     build: .
-    container_name: uap-pkt-autograder
+    container_name: uap-autograder
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - HISTORY_DB_PATH=/data/history.db
     restart: unless-stopped

@@ -1,4 +1,4 @@
-"""FastAPI web backend for drag-and-drop batch grading and CSV export."""
+"""FastAPI web backend for drag-and-drop batch grading, history storage, and CSV export."""
 
 from __future__ import annotations
 
@@ -6,14 +6,15 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from pkt_grader.engine import grade_archive_bytes, grade_bytes, summarize_batch
-from pkt_grader.exporter import batch_to_csv_string
-from pkt_grader.models import BatchReport, RubricConfig, StudentReport
+from pkt_grader.exporter import batch_to_csv_string, batches_to_csv_string
+from pkt_grader.history import HistoryStore, PRODI_CLASSES
+from pkt_grader.models import BatchReport, HistoryRunMeta, RubricConfig, StudentReport
 
 
 def _resolve_web_dist_dir() -> Path | None:
@@ -29,8 +30,6 @@ def _resolve_web_dist_dir() -> Path | None:
             return candidate
     return None
 
-
-WEB_DIST_DIR = _resolve_web_dist_dir()
 
 CHECK_CATALOG = [
     {"id": "topo_devices", "category": "Topologi", "device": "Topologi", "label": "Kelengkapan 6 perangkat utama"},
@@ -56,11 +55,13 @@ CHECK_CATALOG = [
 ]
 
 
-def create_app() -> FastAPI:
+def create_app(db_path: str | Path | None = None) -> FastAPI:
+    store = HistoryStore(db_path=db_path)
+
     app = FastAPI(
         title="UAP Packet Tracer Autograder",
-        version="1.0.0",
-        description="Offline semantic grading API for Cisco Packet Tracer (.pkt/.pka/.zip).",
+        version="1.1.0",
+        description="Offline semantic grading API for Cisco Packet Tracer (.pkt/.pka/.zip) with class history.",
     )
 
     allowed_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
@@ -76,17 +77,26 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/api/classes")
+    def get_classes() -> dict[str, list[str]]:
+        return PRODI_CLASSES
+
     @app.get("/api/rubric")
     def get_rubric() -> dict[str, object]:
         return {
             "rubric": RubricConfig().model_dump(),
             "checks": CHECK_CATALOG,
+            "classes": PRODI_CLASSES,
         }
 
     @app.post("/api/grade", response_model=BatchReport)
     async def grade_uploads(
         files: list[UploadFile] = File(...),
         rubric_json: str | None = Form(default=None),
+        prodi: str = Form(default=""),
+        kelas: str = Form(default=""),
+        note: str = Form(default=""),
+        save_history: bool = Form(default=True),
     ) -> BatchReport:
         if not files:
             raise HTTPException(status_code=400, detail="Minimal satu file .pkt, .pka, atau .zip wajib diunggah.")
@@ -147,15 +157,59 @@ def create_app() -> FastAPI:
                 detail="Tidak ada file .pkt atau .pka ditemukan di dalam unggahan atau arsip ZIP.",
             )
 
-        return summarize_batch(results, rubric)
+        batch = summarize_batch(results, rubric)
+        if save_history:
+            try:
+                batch = store.save_run(batch, prodi=prodi, kelas=kelas, note=note)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return batch
+
+    @app.get("/api/history", response_model=list[HistoryRunMeta])
+    def list_history(
+        prodi: str | None = Query(default=None),
+        kelas: str | None = Query(default=None),
+    ) -> list[HistoryRunMeta]:
+        return store.list_runs(prodi=prodi or None, kelas=kelas or None)
+
+    @app.get("/api/history/export/csv")
+    def export_history_csv(
+        prodi: str | None = Query(default=None),
+        kelas: str | None = Query(default=None),
+    ) -> Response:
+        runs = store.list_full_runs(prodi=prodi or None, kelas=kelas or None)
+        if not runs:
+            raise HTTPException(status_code=404, detail="Tidak ada data riwayat untuk filter yang dipilih.")
+        csv_text = batches_to_csv_string(runs, include_bom=True)
+        suffix = "_".join(p for p in [prodi, kelas] if p).lower() or "semua"
+        return Response(
+            content=csv_text.encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="rekap_uap_{suffix}.csv"'},
+        )
+
+    @app.get("/api/history/{run_id}", response_model=BatchReport)
+    def get_history_run(run_id: str) -> BatchReport:
+        found = store.get_run(run_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Data riwayat evaluasi tidak ditemukan.")
+        return found
+
+    @app.delete("/api/history/{run_id}")
+    def delete_history_run(run_id: str) -> dict[str, object]:
+        deleted = store.delete_run(run_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Data riwayat evaluasi tidak ditemukan.")
+        return {"deleted": True, "id": run_id}
 
     @app.post("/api/export/csv")
     def export_csv(report: BatchReport) -> Response:
         csv_text = batch_to_csv_string(report, include_bom=True)
+        cls_slug = (report.class_label or "uap").lower().replace(" ", "").replace("-", "_")
         return Response(
             content=csv_text.encode("utf-8"),
             media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": 'attachment; filename="uap_grades.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="nilai_{cls_slug}.csv"'},
         )
 
     web_dist = _resolve_web_dist_dir()
