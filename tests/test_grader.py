@@ -183,6 +183,54 @@ def test_extract_student_identity() -> None:
     assert extract_student_identity("UAP Topology.pkt") == ("", "UAP Topology")
 
 
+def test_ios_parser_and_api_without_external_fixtures() -> None:
+    from pkt_grader.ios_parser import (
+        excluded_covers_range,
+        normalize_interface_name,
+        parse_ios_config,
+        parse_vlan_list,
+    )
+
+    assert normalize_interface_name("Gi0/1.10") == "GigabitEthernet0/1.10"
+    assert normalize_interface_name("Fa0/2") == "FastEthernet0/2"
+    assert parse_vlan_list("10,20") == {10, 20}
+    assert parse_vlan_list("10-12,20") == {10, 11, 12, 20}
+
+    cfg = parse_ios_config(
+        """
+!
+hostname R1
+ip dhcp excluded-address 192.168.10.1 192.168.10.10
+ip dhcp pool CUSTOM_V10
+ network 192.168.10.0 255.255.255.0
+ default-router 192.168.10.1
+ dns-server 192.168.30.2
+!
+interface GigabitEthernet0/1.10
+ encapsulation dot1Q 10
+ ip address 192.168.10.1 255.255.255.0
+!
+ip route 192.168.30.0 255.255.255.0 10.0.0.2
+end
+"""
+    )
+    assert cfg.hostname == "R1"
+    ok, missing = excluded_covers_range(cfg.dhcp_excluded, "192.168.10.1", "192.168.10.10")
+    assert ok is True and missing == []
+    assert len(cfg.dhcp_pools) == 1
+    assert cfg.dhcp_pools[0].network == "192.168.10.0"
+    assert cfg.dhcp_pools[0].default_router == "192.168.10.1"
+    assert cfg.dhcp_pools[0].dns_server == "192.168.30.2"
+    assert cfg.interfaces["GigabitEthernet0/1.10"].dot1q_vlan == 10
+    assert len(cfg.static_routes) == 1
+
+    client = TestClient(create_app())
+    assert client.get("/api/health").json() == {"status": "ok"}
+    rubric_data = client.get("/api/rubric").json()
+    assert rubric_data["rubric"]["weights"]["opt_dns"] == 5.0
+    assert len(rubric_data["checks"]) == 20
+
+
 @pytest.mark.skipif(not TEMPLATE_PKT.exists(), reason="Template UAP Topology.pkt not present")
 def test_grade_unconfigured_template() -> None:
     report = grade_bytes(_build_unconfigured_pkt(), "UAP Topology.pkt")

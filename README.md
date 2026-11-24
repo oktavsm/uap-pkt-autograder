@@ -58,9 +58,21 @@ cd web && npm run dev
 
 ## Deploy on a VM (Docker)
 
+Pre-built images are published automatically via GitHub Actions on every push to `main`:
+
+- **Docker Hub**: `oktaavsm/uap-pkt-autograder:latest`
+- **GitHub Container Registry (GHCR)**: `ghcr.io/oktavsm/uap-pkt-autograder:latest`
+
+```bash
+# Pull pre-built image and start (no local build required on VM)
+docker compose pull && docker compose up -d
+# Accessible at http://<vm-ip>:8000
+```
+
+Or build locally from source:
+
 ```bash
 docker compose up -d --build
-# Accessible at http://<vm-ip>:8000
 ```
 
 ## Running Tests
