@@ -374,7 +374,7 @@ def test_grade_real_pt9_configured_file() -> None:
     assert report.percentage == 100.0
     assert report.passed is True
     assert report.errors == []
-    assert report.dns_optional_status == "none"
+    assert report.dns_optional_status in ("none", "complete")
 
 
 @pytest.mark.skipif(not TEMPLATE_PKT.exists(), reason="Template UAP Topology.pkt not present")

@@ -1,9 +1,53 @@
 import { useEffect, useState } from "react";
-import type { CheckStatus, DiffLine, DnsOptionalStatus, StudentReport } from "../types";
+import type { CheckStatus, DiffLine, DnsOptionalStatus, MatchSource, StudentReport } from "../types";
 import { CheckIcon, CloseIcon, CopyIcon, MinusCircleIcon } from "./Icons";
 
 interface StudentDetailProps {
   student: StudentReport;
+  rosterCount?: number;
+  onOpenAssign?: () => void;
+}
+
+function MatchSourceBadge({
+  source,
+  matchedProdi,
+  matchedKelas,
+}: {
+  source?: MatchSource;
+  matchedProdi?: string;
+  matchedKelas?: string;
+}) {
+  const classTag =
+    matchedProdi && matchedKelas ? ` · ${matchedProdi} - ${matchedKelas}` : "";
+  if (source === "roster_nim") {
+    return (
+      <span className="status-badge status-pass">
+        <CheckIcon size={12} />
+        ROSTER: NIM{classTag}
+      </span>
+    );
+  }
+  if (source === "roster_name") {
+    return (
+      <span className="status-badge status-pass">
+        <CheckIcon size={12} />
+        ROSTER: NAMA{classTag}
+      </span>
+    );
+  }
+  if (source === "manual") {
+    return (
+      <span className="status-badge status-optional">
+        <CheckIcon size={12} />
+        ASSIGN MANUAL{classTag}
+      </span>
+    );
+  }
+  return (
+    <span className="status-badge status-partial">
+      BELUM COCOK ROSTER
+    </span>
+  );
 }
 
 type InspectorTab = "checks" | "S1" | "R1" | "R2" | "hosts";
@@ -90,7 +134,7 @@ function DiffBlock({ lines }: { lines: DiffLine[] }) {
   );
 }
 
-export function StudentDetail({ student }: StudentDetailProps) {
+export function StudentDetail({ student, rosterCount = 0, onOpenAssign }: StudentDetailProps) {
   const [tab, setTab] = useState<InspectorTab>("checks");
   const [configMode, setConfigMode] = useState<ConfigViewMode>("diff");
   const [onlyErrors, setOnlyErrors] = useState(false);
@@ -209,7 +253,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
   return (
     <section className="inspector-card" aria-label="Rincian hasil evaluasi mahasiswa">
       <div className="inspector-header">
-        <div>
+        <div className="inspector-ident">
           <p className="metric-label">
             {student.nim ? `NIM ${student.nim}` : "Tanpa NIM"} · {student.filename}
           </p>
@@ -218,6 +262,28 @@ export function StudentDetail({ student }: StudentDetailProps) {
             Sumber: {student.source_path}
             {student.pt_version ? ` · Packet Tracer ${student.pt_version}` : ""}
           </p>
+          {rosterCount > 0 && (
+            <div className="assign-inline-bar">
+              <MatchSourceBadge
+                source={student.match_source}
+                matchedProdi={student.matched_prodi}
+                matchedKelas={student.matched_kelas}
+              />
+              {onOpenAssign && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact"
+                  onClick={onOpenAssign}
+                >
+                  {student.match_source === "roster_nim" ||
+                  student.match_source === "roster_name" ||
+                  student.match_source === "manual"
+                    ? "Ubah praktikan"
+                    : "Assign praktikan"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="inspector-score-box">
           <span className="score-num">

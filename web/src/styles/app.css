@@ -1430,6 +1430,130 @@ input:disabled {
   border-bottom: 0;
 }
 
+/* Roster Bar & Manual Student Assignment */
+.roster-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background-color: var(--bg-surface);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.roster-bar-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.roster-bar-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.roster-bar-actions,
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.inspector-ident {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.assign-inline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.btn-compact {
+  min-height: var(--tap-min);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.meta-warn {
+  color: var(--status-partial-text);
+}
+
+.assign-file-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background-color: var(--bg-surface-2);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.roster-picker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.roster-picker-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: var(--space-3);
+  background-color: var(--bg-surface-2);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text-primary);
+  transition: background-color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+
+.roster-picker-btn:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.roster-picker-btn[aria-pressed="true"] {
+  background-color: var(--status-pass-bg);
+  border-color: var(--status-pass-border);
+}
+
+.roster-picker-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.roster-picker-name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.roster-picker-meta {
+  flex-shrink: 0;
+}
+
 /* Footer */
 .site-footer {
   border-top: var(--border-w) solid var(--border-subtle);
@@ -1459,7 +1583,8 @@ input:disabled {
     gap: var(--space-4);
   }
 
-  .history-card {
+  .history-card,
+  .roster-bar {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;

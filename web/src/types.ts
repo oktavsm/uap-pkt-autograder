@@ -2,6 +2,7 @@ export type CheckStatus = "pass" | "partial" | "fail" | "optional";
 export type StudentStatus = "pass" | "partial" | "fail" | "error";
 export type DnsOptionalStatus = "complete" | "partial" | "none";
 export type ProdiCode = "PTI" | "TI";
+export type MatchSource = "roster_nim" | "roster_name" | "manual" | "filename" | "unmatched";
 export type DiffLineKind =
   | "header"
   | "match"
@@ -9,6 +10,28 @@ export type DiffLineKind =
   | "extra"
   | "optional_missing"
   | "optional_match";
+
+export interface StudentRosterEntry {
+  nim: string;
+  nama: string;
+  prodi: ProdiCode;
+  kelas: string;
+  class_label: string;
+  angkatan: string;
+}
+
+export interface RosterResponse {
+  total: number;
+  counts: Record<string, number>;
+  students: StudentRosterEntry[];
+}
+
+export interface RosterImportResponse {
+  imported: number;
+  skipped: number;
+  total: number;
+  counts: Record<string, number>;
+}
 
 export const PRODI_CLASSES: Record<ProdiCode, string[]> = {
   PTI: ["A", "B", "C", "D"],
@@ -79,6 +102,10 @@ export interface StudentReport {
   source_path: string;
   nim: string;
   student_name: string;
+  matched_prodi?: string;
+  matched_kelas?: string;
+  match_source?: MatchSource;
+  match_confidence?: number;
   pt_version: string;
   file_kind: string;
   status: StudentStatus;

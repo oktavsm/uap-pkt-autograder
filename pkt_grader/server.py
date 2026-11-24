@@ -10,11 +10,22 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from pkt_grader.engine import grade_archive_bytes, grade_bytes, summarize_batch
-from pkt_grader.exporter import batch_to_csv_string, batches_to_csv_string
-from pkt_grader.history import HistoryStore, PRODI_CLASSES
+from pkt_grader.engine import extract_student_identity, grade_archive_bytes, grade_bytes, summarize_batch
+from pkt_grader.exporter import batch_to_csv_string, batches_to_csv_string, class_rekap_to_csv_string
+from pkt_grader.history import HistoryStore, PRODI_CLASSES, validate_prodi_kelas
 from pkt_grader.models import BatchReport, HistoryRunMeta, RubricConfig, StudentReport
+from pkt_grader.roster import RosterStore
+
+
+class AssignStudentRequest(BaseModel):
+    source_path: str
+    nim: str | None = None
+    custom_nim: str | None = None
+    custom_name: str | None = None
+    custom_prodi: str | None = None
+    custom_kelas: str | None = None
 
 
 def _resolve_web_dist_dir() -> Path | None:
@@ -57,11 +68,12 @@ CHECK_CATALOG = [
 
 def create_app(db_path: str | Path | None = None) -> FastAPI:
     store = HistoryStore(db_path=db_path)
+    roster = RosterStore(db_path=db_path)
 
     app = FastAPI(
         title="UAP Packet Tracer Autograder",
-        version="1.1.0",
-        description="Offline semantic grading API for Cisco Packet Tracer (.pkt/.pka/.zip) with class history.",
+        version="1.2.0",
+        description="Offline semantic grading API for Cisco Packet Tracer (.pkt/.pka/.zip) with roster auto-detect and class history.",
     )
 
     allowed_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
@@ -157,6 +169,36 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 detail="Tidak ada file .pkt atau .pka ditemukan di dalam unggahan atau arsip ZIP.",
             )
 
+        roster_cache = roster.list_students()
+        if roster_cache:
+            enriched: list[StudentReport] = []
+            for item in results:
+                match = roster.match_student(
+                    filename=item.filename,
+                    source_path=item.source_path,
+                    parsed_nim=item.nim,
+                    parsed_name=item.student_name,
+                    preferred_prodi=prodi,
+                    preferred_kelas=kelas,
+                    roster_cache=roster_cache,
+                )
+                if match is not None:
+                    enriched.append(
+                        item.model_copy(
+                            update={
+                                "nim": match.student.nim,
+                                "student_name": match.student.nama,
+                                "matched_prodi": match.student.prodi,
+                                "matched_kelas": match.student.kelas,
+                                "match_source": match.method,
+                                "match_confidence": match.confidence,
+                            }
+                        )
+                    )
+                else:
+                    enriched.append(item)
+            results = enriched
+
         batch = summarize_batch(results, rubric)
         if save_history:
             try:
@@ -164,6 +206,34 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         return batch
+
+    @app.get("/api/roster")
+    def list_roster(
+        prodi: str | None = Query(default=None),
+        kelas: str | None = Query(default=None),
+        q: str | None = Query(default=None),
+    ) -> dict[str, object]:
+        items = roster.list_students(prodi=prodi or None, kelas=kelas or None, query=q or None)
+        return {
+            "total": roster.count(),
+            "counts": roster.counts_by_prodi_kelas(),
+            "students": [s.model_dump() for s in items],
+        }
+
+    @app.post("/api/roster/import")
+    async def import_roster_csv(
+        file: UploadFile = File(...),
+        replace: bool = Form(default=True),
+    ) -> dict[str, object]:
+        raw = await file.read()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        try:
+            return roster.import_csv_text(text, replace=replace)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/history", response_model=list[HistoryRunMeta])
     def list_history(
@@ -188,12 +258,115 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="rekap_uap_{suffix}.csv"'},
         )
 
+    @app.get("/api/history/export/class-csv")
+    def export_class_rekap_csv(
+        prodi: str = Query(...),
+        kelas: str = Query(default=""),
+    ) -> Response:
+        try:
+            clean_prodi, clean_kelas = validate_prodi_kelas(prodi, kelas)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not clean_prodi:
+            raise HTTPException(status_code=400, detail="Parameter prodi (PTI atau TI) wajib dipilih.")
+
+        students = roster.list_students(prodi=clean_prodi, kelas=clean_kelas or None)
+        if not students:
+            raise HTTPException(
+                status_code=404,
+                detail="Daftar roster praktikan untuk prodi/kelas ini belum tersedia. Impor CSV roster terlebih dahulu.",
+            )
+        all_runs = store.list_full_runs(limit=500)
+        csv_text = class_rekap_to_csv_string(
+            roster_students=students,
+            runs=all_runs,
+            prodi=clean_prodi,
+            kelas=clean_kelas,
+            include_bom=True,
+        )
+        suffix = "_".join(p for p in [clean_prodi, clean_kelas] if p).lower()
+        return Response(
+            content=csv_text.encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="rekap_lengkap_{suffix}.csv"'},
+        )
+
     @app.get("/api/history/{run_id}", response_model=BatchReport)
     def get_history_run(run_id: str) -> BatchReport:
         found = store.get_run(run_id)
         if found is None:
             raise HTTPException(status_code=404, detail="Data riwayat evaluasi tidak ditemukan.")
         return found
+
+    @app.patch("/api/history/{run_id}/assign", response_model=BatchReport)
+    def assign_history_student(run_id: str, payload: AssignStudentRequest) -> BatchReport:
+        if payload.nim is not None and payload.nim.strip():
+            student = roster.get_by_nim(payload.nim)
+            if student is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Praktikan dengan NIM '{payload.nim}' tidak ditemukan pada roster.",
+                )
+            try:
+                updated = store.update_student_assignment(
+                    run_id,
+                    payload.source_path,
+                    nim=student.nim,
+                    student_name=student.nama,
+                    matched_prodi=student.prodi,
+                    matched_kelas=student.kelas,
+                    match_source="manual",
+                    match_confidence=1.0,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        elif payload.custom_nim or payload.custom_name:
+            clean_p, clean_k = "", ""
+            if payload.custom_prodi:
+                try:
+                    clean_p, clean_k = validate_prodi_kelas(
+                        payload.custom_prodi, payload.custom_kelas or ""
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+            try:
+                updated = store.update_student_assignment(
+                    run_id,
+                    payload.source_path,
+                    nim=(payload.custom_nim or "").strip(),
+                    student_name=(payload.custom_name or "").strip(),
+                    matched_prodi=clean_p,
+                    matched_kelas=clean_k,
+                    match_source="manual",
+                    match_confidence=1.0,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        else:
+            # Reset assignment back to filename-parsed identity
+            existing = store.get_run(run_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Data riwayat evaluasi tidak ditemukan.")
+            target_item = next(
+                (i for i in existing.results if i.source_path == payload.source_path), None
+            )
+            if target_item is None:
+                raise HTTPException(status_code=404, detail="Berkas tidak ditemukan pada riwayat ini.")
+            f_nim, f_name = extract_student_identity(target_item.filename)
+            updated = store.update_student_assignment(
+                run_id,
+                payload.source_path,
+                nim=f_nim,
+                student_name=f_name,
+                matched_prodi="",
+                matched_kelas="",
+                match_source="filename" if f_nim else "unmatched",
+                match_confidence=0.0,
+            )
+
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Data riwayat evaluasi tidak ditemukan.")
+        return updated
 
     @app.delete("/api/history/{run_id}")
     def delete_history_run(run_id: str) -> dict[str, object]:

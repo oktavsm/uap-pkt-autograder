@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  assignHistoryStudent,
   deleteHistoryRun,
+  downloadClassRekapCsv,
   downloadCsvReport,
   downloadHistoryCsv,
   downloadJsonReport,
   fetchHistory,
   fetchHistoryRun,
+  fetchRoster,
   fetchRubric,
   gradeFiles,
+  importRosterCsv,
 } from "./api";
+import { AssignStudentModal } from "./components/AssignStudentModal";
 import { Dropzone } from "./components/Dropzone";
 import { HistoryView } from "./components/HistoryView";
 import {
@@ -30,13 +35,16 @@ import {
   type BatchReport,
   type HistoryRunMeta,
   type ProdiCode,
+  type RosterResponse,
   type RubricCheckMeta,
   type RubricConfig,
+  type StudentReport,
+  type StudentRosterEntry,
   type StudentStatus,
 } from "./types";
 
 type AppView = "evaluate" | "history";
-type StatusFilter = "all" | StudentStatus;
+type StatusFilter = "all" | StudentStatus | "unmatched";
 type SortKey = "score_desc" | "score_asc" | "nim_asc" | "name_asc";
 
 const SORT_OPTIONS = [
@@ -142,6 +150,17 @@ export function App() {
   const [openingRunId, setOpeningRunId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [exportingHistory, setExportingHistory] = useState(false);
+  const [exportingClassCsv, setExportingClassCsv] = useState(false);
+
+  const [rosterData, setRosterData] = useState<RosterResponse>({
+    total: 0,
+    counts: {},
+    students: [],
+  });
+  const [importingRoster, setImportingRoster] = useState(false);
+  const [rosterNotice, setRosterNotice] = useState<string | null>(null);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignSaving, setAssignSaving] = useState(false);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -165,6 +184,15 @@ export function App() {
     }
   }, []);
 
+  const refreshRoster = useCallback(async () => {
+    try {
+      const data = await fetchRoster();
+      setRosterData(data);
+    } catch {
+      // Keep existing state if server momentarily unavailable
+    }
+  }, []);
+
   useEffect(() => {
     fetchRubric()
       .then((data) => {
@@ -176,7 +204,8 @@ export function App() {
         // Fallback rubric already loaded
       });
     void refreshHistory();
-  }, [refreshHistory]);
+    void refreshRoster();
+  }, [refreshHistory, refreshRoster]);
 
   const handleProdiChange = (nextProdi: ProdiCode) => {
     setProdi(nextProdi);
@@ -273,6 +302,116 @@ export function App() {
     }
   };
 
+  const handleExportClassRekapCsv = async (p: string, k?: string) => {
+    setExportingClassCsv(true);
+    setErrorMsg(null);
+    try {
+      await downloadClassRekapCsv(p, k);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal mengunduh rekap lengkap kelas.");
+    } finally {
+      setExportingClassCsv(false);
+    }
+  };
+
+  const handleImportRosterCsv = async (file: File) => {
+    setImportingRoster(true);
+    setErrorMsg(null);
+    setRosterNotice(null);
+    try {
+      const res = await importRosterCsv(file, true);
+      await refreshRoster();
+      setRosterNotice(
+        `Berhasil mengimpor ${res.imported} praktikan (${res.skipped} baris non-PTI/TI dilewati).`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal mengimpor berkas CSV roster.");
+    } finally {
+      setImportingRoster(false);
+    }
+  };
+
+  const handleAssignStudent = async (entry: StudentRosterEntry) => {
+    if (!report || !activeStudent) return;
+    setAssignSaving(true);
+    setErrorMsg(null);
+    try {
+      if (report.run_id) {
+        const updated = await assignHistoryStudent(report.run_id, {
+          source_path: activeStudent.source_path,
+          nim: entry.nim,
+        });
+        setReport(updated);
+      } else {
+        setReport((prev) =>
+          prev
+            ? {
+                ...prev,
+                results: prev.results.map((r) =>
+                  r.source_path === activeStudent.source_path
+                    ? {
+                        ...r,
+                        nim: entry.nim,
+                        student_name: entry.nama,
+                        matched_prodi: entry.prodi,
+                        matched_kelas: entry.kelas,
+                        match_source: "manual",
+                        match_confidence: 1,
+                      }
+                    : r
+                ),
+              }
+            : prev
+        );
+      }
+      setAssignModalOpen(false);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal menyimpan assignment praktikan.");
+    } finally {
+      setAssignSaving(false);
+    }
+  };
+
+  const handleUnassignStudent = async () => {
+    if (!report || !activeStudent) return;
+    setAssignSaving(true);
+    setErrorMsg(null);
+    try {
+      if (report.run_id) {
+        const updated = await assignHistoryStudent(report.run_id, {
+          source_path: activeStudent.source_path,
+          nim: null,
+        });
+        setReport(updated);
+      } else {
+        setReport((prev) =>
+          prev
+            ? {
+                ...prev,
+                results: prev.results.map((r) =>
+                  r.source_path === activeStudent.source_path
+                    ? {
+                        ...r,
+                        nim: "",
+                        matched_prodi: "",
+                        matched_kelas: "",
+                        match_source: "unmatched",
+                        match_confidence: 0,
+                      }
+                    : r
+                ),
+              }
+            : prev
+        );
+      }
+      setAssignModalOpen(false);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal melepas assignment praktikan.");
+    } finally {
+      setAssignSaving(false);
+    }
+  };
+
   const handleExportCsv = async () => {
     if (!report) return;
     setExportingCsv(true);
@@ -286,6 +425,11 @@ export function App() {
     }
   };
 
+  const isRosterMatched = (r: StudentReport) =>
+    r.match_source === "roster_nim" ||
+    r.match_source === "roster_name" ||
+    r.match_source === "manual";
+
   const counts = useMemo(() => {
     const items = report?.results ?? [];
     return {
@@ -293,7 +437,18 @@ export function App() {
       pass: items.filter((r) => r.status === "pass").length,
       partial: items.filter((r) => r.status === "partial").length,
       fail: items.filter((r) => r.status === "fail" || r.status === "error").length,
+      unmatched: items.filter((r) => !isRosterMatched(r)).length,
     };
+  }, [report]);
+
+  const assignedNimsInBatch = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of report?.results ?? []) {
+      if (r.nim && isRosterMatched(r)) {
+        set.add(r.nim);
+      }
+    }
+    return set;
   }, [report]);
 
   const filteredResults = useMemo(() => {
@@ -303,6 +458,7 @@ export function App() {
       if (statusFilter === "pass" && r.status !== "pass") return false;
       if (statusFilter === "partial" && r.status !== "partial") return false;
       if (statusFilter === "fail" && r.status !== "fail" && r.status !== "error") return false;
+      if (statusFilter === "unmatched" && isRosterMatched(r)) return false;
       if (!q) return true;
       return (
         r.filename.toLowerCase().includes(q) ||
@@ -442,9 +598,16 @@ export function App() {
               openingId={openingRunId}
               deletingId={deletingRunId}
               exporting={exportingHistory}
+              exportingClass={exportingClassCsv}
+              rosterTotal={rosterData.total}
+              rosterCounts={rosterData.counts}
+              importingRoster={importingRoster}
+              rosterNotice={rosterNotice}
               onOpenRun={handleOpenHistoryRun}
               onDeleteRun={handleDeleteHistoryRun}
               onExportCombinedCsv={handleExportHistoryCsv}
+              onExportClassRekapCsv={handleExportClassRekapCsv}
+              onImportRosterCsv={handleImportRosterCsv}
             />
           ) : (
             <>
@@ -583,6 +746,13 @@ export function App() {
                             ["pass", "Lulus", counts.pass],
                             ["partial", "Parsial", counts.partial],
                             ["fail", "Tidak lulus", counts.fail],
+                            ...(rosterData.total > 0 && counts.unmatched > 0
+                              ? ([["unmatched", "Belum cocok", counts.unmatched]] as [
+                                  StatusFilter,
+                                  string,
+                                  number,
+                                ][])
+                              : []),
                           ] as [StatusFilter, string, number][]
                         ).map(([key, label, count]) => (
                           <button
@@ -635,10 +805,18 @@ export function App() {
                                     </span>
                                     <span className="student-meta">
                                       <span>{student.nim || "Tanpa NIM"}</span>
-                                      <span>{student.errors.length} tidak sesuai</span>
+                                      <span>· {student.errors.length} tidak sesuai</span>
+                                      {student.matched_prodi && student.matched_kelas && (
+                                        <span>
+                                          · {student.matched_prodi} - {student.matched_kelas}
+                                        </span>
+                                      )}
+                                      {rosterData.total > 0 && !isRosterMatched(student) && (
+                                        <span className="meta-warn">· Belum cocok</span>
+                                      )}
                                       {student.dns_optional_status !== "none" && (
                                         <span>
-                                          DNS:{" "}
+                                          · DNS:{" "}
                                           {student.dns_optional_status === "complete"
                                             ? "lengkap"
                                             : "parsial"}
@@ -657,7 +835,13 @@ export function App() {
                         </ul>
                       </nav>
 
-                      {activeStudent && <StudentDetail student={activeStudent} />}
+                      {activeStudent && (
+                        <StudentDetail
+                          student={activeStudent}
+                          rosterCount={rosterData.total}
+                          onOpenAssign={() => setAssignModalOpen(true)}
+                        />
+                      )}
                     </div>
                   )}
                 </section>
@@ -681,6 +865,19 @@ export function App() {
         checks={checkCatalog}
         onChange={setRubric}
         onClose={() => setDrawerOpen(false)}
+      />
+
+      <AssignStudentModal
+        open={assignModalOpen}
+        student={activeStudent}
+        roster={rosterData.students}
+        assignedNims={assignedNimsInBatch}
+        defaultProdi={report?.prodi || prodi}
+        defaultKelas={report?.kelas || kelas}
+        saving={assignSaving}
+        onAssign={handleAssignStudent}
+        onUnassign={handleUnassignStudent}
+        onClose={() => setAssignModalOpen(false)}
       />
     </div>
   );

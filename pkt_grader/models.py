@@ -81,11 +81,33 @@ class DeviceSnapshot(BaseModel):
     vlans: list[int] = Field(default_factory=list)
 
 
+MatchSource = Literal["roster_nim", "roster_name", "manual", "filename", "unmatched"]
+
+
+class StudentRosterEntry(BaseModel):
+    nim: str
+    nama: str
+    prodi: str
+    kelas: str
+    class_label: str = ""
+    angkatan: str = ""
+
+
+class RosterMatch(BaseModel):
+    student: StudentRosterEntry
+    method: Literal["roster_nim", "roster_name", "manual"]
+    confidence: float = 1.0
+
+
 class StudentReport(BaseModel):
     filename: str
     source_path: str
     nim: str = ""
     student_name: str = ""
+    matched_prodi: str = ""
+    matched_kelas: str = ""
+    match_source: MatchSource = "unmatched"
+    match_confidence: float = 0.0
     pt_version: str = ""
     file_kind: str = ""
     status: Literal["pass", "partial", "fail", "error"]

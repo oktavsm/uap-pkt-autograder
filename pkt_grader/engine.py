@@ -1021,6 +1021,18 @@ def grade_bytes(
     active_rubric = rubric or RubricConfig()
     nim, student_name = extract_student_identity(filename)
     src = source_path or filename
+    # Fallback: if filename has no NIM (e.g., "UAP Topology.pkt") inside a named ZIP folder,
+    # inspect the parent folder inside source_path too.
+    if not nim and "::" in src:
+        inner_parts = [p for p in Path(src.split("::", 1)[1]).parts[:-1] if p and p != "__MACOSX"]
+        for part in reversed(inner_parts):
+            p_nim, p_name = extract_student_identity(part)
+            if p_nim:
+                nim = p_nim
+                if p_name:
+                    student_name = p_name
+                break
+    initial_match_source = "filename" if nim else "unmatched"
 
     mandatory_max = round(
         sum(
@@ -1103,6 +1115,7 @@ def grade_bytes(
         source_path=src,
         nim=nim,
         student_name=student_name,
+        match_source=initial_match_source,
         pt_version=lab.pt_version,
         file_kind=lab.file_kind,
         status=status,

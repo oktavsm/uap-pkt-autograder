@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PRODI_CLASSES, type HistoryRunMeta, type ProdiCode } from "../types";
-import { DownloadIcon } from "./Icons";
+import { DownloadIcon, UploadIcon } from "./Icons";
 
 interface HistoryViewProps {
   runs: HistoryRunMeta[];
@@ -8,9 +8,16 @@ interface HistoryViewProps {
   openingId: string | null;
   deletingId: string | null;
   exporting: boolean;
+  exportingClass: boolean;
+  rosterTotal: number;
+  rosterCounts: Record<string, number>;
+  importingRoster: boolean;
+  rosterNotice: string | null;
   onOpenRun: (runId: string) => void;
   onDeleteRun: (runId: string) => void;
   onExportCombinedCsv: (prodi?: string, kelas?: string) => void;
+  onExportClassRekapCsv: (prodi: string, kelas?: string) => void;
+  onImportRosterCsv: (file: File) => void;
 }
 
 function formatDateWib(iso: string): string {
@@ -33,13 +40,21 @@ export function HistoryView({
   openingId,
   deletingId,
   exporting,
+  exportingClass,
+  rosterTotal,
+  rosterCounts,
+  importingRoster,
+  rosterNotice,
   onOpenRun,
   onDeleteRun,
   onExportCombinedCsv,
+  onExportClassRekapCsv,
+  onImportRosterCsv,
 }: HistoryViewProps) {
   const [prodiFilter, setProdiFilter] = useState<"ALL" | ProdiCode>("ALL");
   const [kelasFilter, setKelasFilter] = useState<string>("ALL");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const rosterInputRef = useRef<HTMLInputElement>(null);
 
   const availableClasses = prodiFilter === "ALL" ? [] : PRODI_CLASSES[prodiFilter];
 
@@ -67,6 +82,48 @@ export function HistoryView({
 
   return (
     <section className="history-section" aria-label="Riwayat evaluasi tersimpan">
+      <div className="roster-bar">
+        <div className="roster-bar-info">
+          <span className="metric-label">ROSTER PRAKTIKAN AUTO-DETECT</span>
+          <div className="roster-bar-stats">
+            {rosterTotal > 0 ? (
+              <span>
+                <strong>{rosterTotal}</strong> praktikan terdaftar (PTI: {rosterCounts["PTI"] ?? 0} ·
+                TI: {rosterCounts["TI"] ?? 0})
+              </span>
+            ) : (
+              <span>Belum ada data roster diimpor. Unggah CSV Data Praktikan untuk auto-detect NIM/Nama.</span>
+            )}
+            {rosterNotice && <span className="metric-label">{rosterNotice}</span>}
+          </div>
+        </div>
+        <div className="roster-bar-actions">
+          <input
+            ref={rosterInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="sr-only"
+            aria-label="Impor berkas CSV roster praktikan"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onImportRosterCsv(file);
+              }
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={importingRoster}
+            onClick={() => rosterInputRef.current?.click()}
+          >
+            <UploadIcon />
+            {importingRoster ? "Mengimpor..." : "Impor Roster CSV"}
+          </button>
+        </div>
+      </div>
+
       <div className="toolbar">
         <div className="toolbar-row">
           <div className="filter-group" role="group" aria-label="Filter program studi">
@@ -88,20 +145,43 @@ export function HistoryView({
             })}
           </div>
 
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={exporting || filteredRuns.length === 0}
-            onClick={() =>
-              onExportCombinedCsv(
-                prodiFilter === "ALL" ? undefined : prodiFilter,
-                prodiFilter !== "ALL" && kelasFilter !== "ALL" ? kelasFilter : undefined
-              )
-            }
-          >
-            <DownloadIcon />
-            {exporting ? "Menyiapkan CSV..." : "Ekspor Rekap CSV"}
-          </button>
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={exporting || filteredRuns.length === 0}
+              onClick={() =>
+                onExportCombinedCsv(
+                  prodiFilter === "ALL" ? undefined : prodiFilter,
+                  prodiFilter !== "ALL" && kelasFilter !== "ALL" ? kelasFilter : undefined
+                )
+              }
+            >
+              <DownloadIcon />
+              {exporting ? "Menyiapkan CSV..." : "Ekspor Rekap CSV"}
+            </button>
+
+            {prodiFilter !== "ALL" && rosterTotal > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={exportingClass}
+                onClick={() =>
+                  onExportClassRekapCsv(
+                    prodiFilter,
+                    kelasFilter !== "ALL" ? kelasFilter : undefined
+                  )
+                }
+              >
+                <DownloadIcon />
+                {exportingClass
+                  ? "Menyiapkan..."
+                  : kelasFilter !== "ALL"
+                    ? `Rekap Lengkap ${prodiFilter} - ${kelasFilter}`
+                    : `Rekap Lengkap ${prodiFilter}`}
+              </button>
+            )}
+          </div>
         </div>
 
         {prodiFilter !== "ALL" && (

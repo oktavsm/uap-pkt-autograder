@@ -7,7 +7,7 @@ import io
 import json
 from pathlib import Path
 
-from pkt_grader.models import BatchReport
+from pkt_grader.models import BatchReport, StudentReport, StudentRosterEntry
 
 
 CSV_COLUMNS = [
@@ -18,6 +18,7 @@ CSV_COLUMNS = [
     "filename",
     "nim",
     "student_name",
+    "match_source",
     "status",
     "score",
     "max_score",
@@ -35,6 +36,30 @@ CSV_COLUMNS = [
     "error_details",
 ]
 
+CLASS_REKAP_COLUMNS = [
+    "no",
+    "nim",
+    "nama",
+    "prodi",
+    "kelas",
+    "status_pengumpulan",
+    "status_kelulusan",
+    "skor",
+    "skor_maks",
+    "persentase",
+    "dns_opsional",
+    "topologi",
+    "vlan_switch",
+    "dhcp_r1",
+    "static_routing",
+    "end_device_dhcp",
+    "penyimpanan",
+    "sumber_pencocokan",
+    "nama_berkas",
+    "waktu_evaluasi",
+    "catatan_kesalahan",
+]
+
 
 def _cat_score(cat_scores: dict[str, dict[str, float]], key: str) -> str:
     bucket = cat_scores.get(key)
@@ -45,7 +70,7 @@ def _cat_score(cat_scores: dict[str, dict[str, float]], key: str) -> str:
 
 def _iter_csv_rows(report: BatchReport) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    class_label = report.class_label or (
+    batch_class_label = report.class_label or (
         f"{report.prodi} - {report.kelas}" if report.prodi and report.kelas else ""
     )
     for r in report.results:
@@ -53,15 +78,22 @@ def _iter_csv_rows(report: BatchReport) -> list[dict[str, str]]:
         dns_label = {"complete": "LENGKAP", "partial": "PARSIAL", "none": "TIDAK ADA"}[
             r.dns_optional_status
         ]
+        student_prodi = r.matched_prodi or report.prodi
+        student_class = (
+            f"{r.matched_prodi} - {r.matched_kelas}"
+            if r.matched_prodi and r.matched_kelas
+            else batch_class_label
+        )
         rows.append(
             {
-                "prodi": report.prodi,
-                "kelas": class_label,
+                "prodi": student_prodi,
+                "kelas": student_class,
                 "catatan": report.note,
                 "evaluated_at": report.created_at or "",
                 "filename": r.filename,
                 "nim": r.nim,
                 "student_name": r.student_name,
+                "match_source": r.match_source.upper(),
                 "status": r.status.upper(),
                 "score": f"{r.score:.2f}",
                 "max_score": f"{r.max_score:.2f}",
@@ -80,6 +112,129 @@ def _iter_csv_rows(report: BatchReport) -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def class_rekap_to_csv_string(
+    roster_students: list[StudentRosterEntry],
+    runs: list[BatchReport],
+    prodi: str,
+    kelas: str,
+    include_bom: bool = True,
+) -> str:
+    """Export a full class gradebook CSV combining official roster with latest graded results."""
+    dns_map = {"complete": "LENGKAP", "partial": "PARSIAL", "none": "TIDAK ADA"}
+    latest_by_nim: dict[str, tuple[StudentReport, BatchReport]] = {}
+    unassigned_in_class: list[tuple[StudentReport, BatchReport]] = []
+
+    roster_nims = {s.nim for s in roster_students}
+
+    # runs are ordered newest-first; keep first occurrence per NIM (most recent evaluation)
+    for rep in runs:
+        rep_matches_class = (
+            rep.prodi.upper() == prodi.upper()
+            and (not kelas or rep.kelas.upper() == kelas.upper())
+        )
+        for stu in rep.results:
+            if stu.nim and stu.nim in roster_nims:
+                if stu.nim not in latest_by_nim:
+                    latest_by_nim[stu.nim] = (stu, rep)
+            elif rep_matches_class and (not stu.nim or stu.nim not in roster_nims):
+                unassigned_in_class.append((stu, rep))
+
+    buf = io.StringIO()
+    if include_bom:
+        buf.write("\ufeff")
+    writer = csv.DictWriter(buf, fieldnames=CLASS_REKAP_COLUMNS)
+    writer.writeheader()
+
+    row_no = 0
+    for entry in roster_students:
+        row_no += 1
+        found = latest_by_nim.get(entry.nim)
+        if found is None:
+            writer.writerow(
+                {
+                    "no": str(row_no),
+                    "nim": entry.nim,
+                    "nama": entry.nama,
+                    "prodi": entry.prodi,
+                    "kelas": entry.class_label or f"{entry.prodi} - {entry.kelas}",
+                    "status_pengumpulan": "BELUM DINILAI",
+                    "status_kelulusan": "-",
+                    "skor": "",
+                    "skor_maks": "",
+                    "persentase": "",
+                    "dns_opsional": "-",
+                    "topologi": "",
+                    "vlan_switch": "",
+                    "dhcp_r1": "",
+                    "static_routing": "",
+                    "end_device_dhcp": "",
+                    "penyimpanan": "",
+                    "sumber_pencocokan": "-",
+                    "nama_berkas": "",
+                    "waktu_evaluasi": "",
+                    "catatan_kesalahan": "",
+                }
+            )
+            continue
+
+        stu, rep = found
+        writer.writerow(
+            {
+                "no": str(row_no),
+                "nim": entry.nim,
+                "nama": entry.nama,
+                "prodi": entry.prodi,
+                "kelas": entry.class_label or f"{entry.prodi} - {entry.kelas}",
+                "status_pengumpulan": "DINILAI",
+                "status_kelulusan": "LULUS" if stu.passed else "TIDAK LULUS",
+                "skor": f"{stu.score:.2f}",
+                "skor_maks": f"{stu.max_score:.2f}",
+                "persentase": f"{stu.percentage:.2f}",
+                "dns_opsional": dns_map[stu.dns_optional_status],
+                "topologi": _cat_score(stu.category_scores, "Topologi"),
+                "vlan_switch": _cat_score(stu.category_scores, "VLAN & Switch"),
+                "dhcp_r1": _cat_score(stu.category_scores, "DHCP & R1"),
+                "static_routing": _cat_score(stu.category_scores, "Static Routing"),
+                "end_device_dhcp": _cat_score(stu.category_scores, "End Device DHCP"),
+                "penyimpanan": _cat_score(stu.category_scores, "Penyimpanan"),
+                "sumber_pencocokan": stu.match_source.upper(),
+                "nama_berkas": stu.filename,
+                "waktu_evaluasi": rep.created_at or "",
+                "catatan_kesalahan": " | ".join(stu.errors),
+            }
+        )
+
+    for stu, rep in unassigned_in_class:
+        row_no += 1
+        writer.writerow(
+            {
+                "no": str(row_no),
+                "nim": stu.nim,
+                "nama": stu.student_name or stu.filename,
+                "prodi": stu.matched_prodi or rep.prodi,
+                "kelas": rep.class_label or f"{prodi} - {kelas}",
+                "status_pengumpulan": "BELUM DI-ASSIGN",
+                "status_kelulusan": "LULUS" if stu.passed else "TIDAK LULUS",
+                "skor": f"{stu.score:.2f}",
+                "skor_maks": f"{stu.max_score:.2f}",
+                "persentase": f"{stu.percentage:.2f}",
+                "dns_opsional": dns_map[stu.dns_optional_status],
+                "topologi": _cat_score(stu.category_scores, "Topologi"),
+                "vlan_switch": _cat_score(stu.category_scores, "VLAN & Switch"),
+                "dhcp_r1": _cat_score(stu.category_scores, "DHCP & R1"),
+                "static_routing": _cat_score(stu.category_scores, "Static Routing"),
+                "end_device_dhcp": _cat_score(stu.category_scores, "End Device DHCP"),
+                "penyimpanan": _cat_score(stu.category_scores, "Penyimpanan"),
+                "sumber_pencocokan": stu.match_source.upper(),
+                "nama_berkas": stu.filename,
+                "waktu_evaluasi": rep.created_at or "",
+                "catatan_kesalahan": " | ".join(stu.errors),
+            }
+        )
+
+    return buf.getvalue()
 
 
 def batch_to_csv_string(report: BatchReport, include_bom: bool = True) -> str:
