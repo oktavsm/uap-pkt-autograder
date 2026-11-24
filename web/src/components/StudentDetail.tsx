@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CheckStatus, DnsOptionalStatus, StudentReport } from "../types";
+import type { CheckStatus, DiffLine, DnsOptionalStatus, StudentReport } from "../types";
 import { CheckIcon, CloseIcon, CopyIcon, MinusCircleIcon } from "./Icons";
 
 interface StudentDetailProps {
@@ -7,6 +7,7 @@ interface StudentDetailProps {
 }
 
 type InspectorTab = "checks" | "S1" | "R1" | "R2" | "hosts";
+type ConfigViewMode = "diff" | "raw";
 
 function StatusBadge({ status, optional }: { status: CheckStatus | "error"; optional?: boolean }) {
   if (optional) {
@@ -73,13 +74,31 @@ function DnsSummaryBadge({ status }: { status: DnsOptionalStatus }) {
   return <span className="status-badge status-optional">DNS OPSIONAL: TIDAK DIKONFIGURASI</span>;
 }
 
+function DiffBlock({ lines }: { lines: DiffLine[] }) {
+  return (
+    <div className="diff-box" role="region" aria-label="Perbandingan konfigurasi terhadap kunci jawaban">
+      {lines.map((line, idx) => (
+        <div key={`${line.kind}-${idx}`} className={`diff-line diff-line-${line.kind}`}>
+          <span className="diff-prefix" aria-hidden="true">
+            {line.prefix}
+          </span>
+          <span className="diff-text">{line.text}</span>
+          {line.note && <span className="diff-note">{line.note}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function StudentDetail({ student }: StudentDetailProps) {
   const [tab, setTab] = useState<InspectorTab>("checks");
+  const [configMode, setConfigMode] = useState<ConfigViewMode>("diff");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
     setTab("checks");
+    setConfigMode("diff");
     setCopiedKey(null);
   }, [student.source_path]);
 
@@ -99,36 +118,93 @@ export function StudentDetail({ student }: StudentDetailProps) {
 
   const renderConfigTab = (deviceKey: "S1" | "R1" | "R2") => {
     const dev = student.devices[deviceKey];
-    if (!dev || !dev.running_config) {
-      return (
-        <div className="empty-state">
-          <p className="empty-title">Konfigurasi {deviceKey} tidak tersedia</p>
-          <p className="empty-desc">
-            Perangkat {deviceKey} tidak ditemukan atau tidak memiliki running-config pada berkas ini.
-          </p>
-        </div>
-      );
-    }
+    const diffLines = student.config_diffs[deviceKey] ?? [];
+    const diffPlainText = diffLines
+      .map((l) => (l.kind === "header" ? l.text : `${l.prefix} ${l.text}${l.note ? `  # ${l.note}` : ""}`))
+      .join("\n");
+
     return (
       <div className="config-viewer">
         <div className="config-bar">
-          <span className="metric-label">
-            {dev.name} ({dev.model || dev.device_type}) · startup-config:{" "}
-            {dev.has_startup_config ? "tersimpan" : "kosong"}
-          </span>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => copyConfig(deviceKey, dev.running_config)}
-          >
-            {copiedKey === deviceKey ? <CheckIcon /> : <CopyIcon />}
-            {copiedKey === deviceKey ? "Tersalin" : "Salin konfigurasi"}
-          </button>
+          <div className="config-mode-group" role="group" aria-label={`Mode tampilan ${deviceKey}`}>
+            <button
+              type="button"
+              className="filter-btn"
+              aria-pressed={configMode === "diff"}
+              onClick={() => setConfigMode("diff")}
+            >
+              Diff vs Kunci
+            </button>
+            <button
+              type="button"
+              className="filter-btn"
+              aria-pressed={configMode === "raw"}
+              onClick={() => setConfigMode("raw")}
+            >
+              Raw show run
+            </button>
+          </div>
+
+          <div className="check-title-wrap">
+            {dev && (
+              <span className="metric-label">
+                {dev.name} ({dev.model || dev.device_type}) · startup-config:{" "}
+                {dev.has_startup_config ? "tersimpan" : "kosong"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={configMode === "raw" ? !dev?.running_config : diffLines.length === 0}
+              onClick={() =>
+                copyConfig(
+                  `${deviceKey}-${configMode}`,
+                  configMode === "raw" ? dev?.running_config ?? "" : diffPlainText
+                )
+              }
+            >
+              {copiedKey === `${deviceKey}-${configMode}` ? <CheckIcon /> : <CopyIcon />}
+              {copiedKey === `${deviceKey}-${configMode}`
+                ? "Tersalin"
+                : configMode === "raw"
+                  ? "Salin show run"
+                  : "Salin diff"}
+            </button>
+          </div>
         </div>
-        <pre className="config-pre">{dev.running_config}</pre>
+
+        {configMode === "diff" ? (
+          diffLines.length > 0 ? (
+            <>
+              <div className="diff-legend">
+                <span>Spasi: sesuai kunci</span>
+                <span>- : kurang dari kunci</span>
+                <span>+ : beda / opsional aktif</span>
+                <span>~ : opsional tidak diisi</span>
+              </div>
+              <DiffBlock lines={diffLines} />
+            </>
+          ) : (
+            <div className="empty-state">
+              <p className="empty-title">Diff konfigurasi {deviceKey} tidak tersedia</p>
+              <p className="empty-desc">Data konfigurasi tidak ditemukan pada berkas ini.</p>
+            </div>
+          )
+        ) : dev?.running_config ? (
+          <pre className="config-pre">{dev.running_config}</pre>
+        ) : (
+          <div className="empty-state">
+            <p className="empty-title">Konfigurasi {deviceKey} tidak tersedia</p>
+            <p className="empty-desc">
+              Perangkat {deviceKey} tidak ditemukan atau tidak memiliki running-config pada berkas ini.
+            </p>
+          </div>
+        )}
       </div>
     );
   };
+
+  const serverDiff = student.config_diffs["Server1"] ?? [];
 
   return (
     <section className="inspector-card" aria-label="Rincian hasil evaluasi mahasiswa">
@@ -178,10 +254,10 @@ export function StudentDetail({ student }: StudentDetailProps) {
         {(
           [
             ["checks", `Indikator (${student.checks.length})`],
-            ["S1", "S1 running-config"],
-            ["R1", "R1 running-config"],
-            ["R2", "R2 running-config"],
-            ["hosts", "End Device"],
+            ["S1", "S1 Diff / Config"],
+            ["R1", "R1 Diff / Config"],
+            ["R2", "R2 Diff / Config"],
+            ["hosts", "End Device & DNS"],
           ] as [InspectorTab, string][]
         ).map(([id, label]) => (
           <button
@@ -233,9 +309,7 @@ export function StudentDetail({ student }: StudentDetailProps) {
                   <div className="check-title-wrap">
                     <span className="metric-label mono">
                       {check.optional
-                        ? check.points_possible > 0
-                          ? `bonus ${check.points_earned}/${check.points_possible}`
-                          : "opsional"
+                        ? `bonus +${check.points_earned}/${check.points_possible}`
                         : `${check.points_earned}/${check.points_possible}`}
                     </span>
                     <StatusBadge status={check.status} optional={check.optional} />
@@ -265,51 +339,60 @@ export function StudentDetail({ student }: StudentDetailProps) {
       {tab === "R2" && renderConfigTab("R2")}
 
       {tab === "hosts" && (
-        <div className="host-grid">
-          {(["PC1", "PC2", "Server1"] as const).map((hostName) => {
-            const host = student.devices[hostName];
-            return (
-              <article key={hostName} className="host-card">
-                <p className="check-title">{hostName}</p>
-                {host ? (
-                  <dl className="host-kv">
-                    <dt>Mode IP</dt>
-                    <dd>{host.dhcp_enabled ? "DHCP" : "Statis"}</dd>
-                    <dt>IP</dt>
-                    <dd>{host.ip || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
-                    <dt>Subnet</dt>
-                    <dd>{host.subnet || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
-                    <dt>Gateway</dt>
-                    <dd>{host.gateway || "-"}</dd>
-                    {host.dhcp_server_ip && (
-                      <>
-                        <dt>DHCP Server</dt>
-                        <dd>{host.dhcp_server_ip}</dd>
-                      </>
-                    )}
-                    {host.dns_client_ip && (
-                      <>
-                        <dt>DNS Client</dt>
-                        <dd>{host.dns_client_ip}</dd>
-                      </>
-                    )}
-                    {hostName === "Server1" && (
-                      <>
-                        <dt>Layanan DNS</dt>
-                        <dd>
-                          {host.dns_server_enabled
-                            ? `Aktif (${host.dns_records.length} record)`
-                            : "Nonaktif"}
-                        </dd>
-                      </>
-                    )}
-                  </dl>
-                ) : (
-                  <p className="metric-label">Perangkat tidak ditemukan.</p>
-                )}
-              </article>
-            );
-          })}
+        <div className="config-viewer">
+          <div className="host-grid">
+            {(["PC1", "PC2", "Server1"] as const).map((hostName) => {
+              const host = student.devices[hostName];
+              return (
+                <article key={hostName} className="host-card">
+                  <p className="check-title">{hostName}</p>
+                  {host ? (
+                    <dl className="host-kv">
+                      <dt>Mode IP</dt>
+                      <dd>{host.dhcp_enabled ? "DHCP" : "Statis"}</dd>
+                      <dt>IP</dt>
+                      <dd>{host.ip || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
+                      <dt>Subnet</dt>
+                      <dd>{host.subnet || (host.dhcp_enabled ? "Dinamis (DHCP)" : "-")}</dd>
+                      <dt>Gateway</dt>
+                      <dd>{host.gateway || "-"}</dd>
+                      {host.dhcp_server_ip && (
+                        <>
+                          <dt>DHCP Server</dt>
+                          <dd>{host.dhcp_server_ip}</dd>
+                        </>
+                      )}
+                      {host.dns_client_ip && (
+                        <>
+                          <dt>DNS Client</dt>
+                          <dd>{host.dns_client_ip}</dd>
+                        </>
+                      )}
+                      {hostName === "Server1" && (
+                        <>
+                          <dt>Layanan DNS</dt>
+                          <dd>
+                            {host.dns_server_enabled
+                              ? `Aktif (${host.dns_records.length} record)`
+                              : "Nonaktif"}
+                          </dd>
+                        </>
+                      )}
+                    </dl>
+                  ) : (
+                    <p className="metric-label">Perangkat tidak ditemukan.</p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+
+          {serverDiff.length > 0 && (
+            <>
+              <p className="metric-label">DIFF SERVER1 &amp; DNS OPSIONAL</p>
+              <DiffBlock lines={serverDiff} />
+            </>
+          )}
         </div>
       )}
     </section>

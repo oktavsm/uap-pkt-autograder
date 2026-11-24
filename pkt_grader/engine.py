@@ -11,6 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
+from pkt_grader.diff_builder import build_config_diffs
 from pkt_grader.ios_parser import (
     InterfaceConfig,
     excluded_covers_range,
@@ -928,11 +929,19 @@ def _check_optional_dns(lab: ParsedLab, rubric: RubricConfig) -> tuple[CheckResu
 
     has_any_dns = bool(pool_v10_dns or pool_v20_dns or srv_dns_on or srv_records or pc1_dns or pc2_dns)
 
-    expected = "Opsional: dns-server 192.168.30.2 di pool VLAN10 & VLAN20, layanan DNS aktif + A-record di Server1"
+    valid_records = [
+        rec for rec in srv_records
+        if "->" in rec and is_ip_address(rec.split("->", 1)[1].strip())
+    ]
+
+    expected = (
+        "Opsional (+bonus maks. 100): dns-server 192.168.30.2 di pool VLAN10 & VLAN20, "
+        "layanan DNS aktif + minimal 1 A-record (domain bebas) di Server1"
+    )
     actual_parts = [
         f"R1 pool VLAN10 dns={pool_v10_dns or '-'}",
         f"VLAN20 dns={pool_v20_dns or '-'}",
-        f"Server1 DNS={'aktif' if srv_dns_on else 'nonaktif'} ({len(srv_records)} record)",
+        f"Server1 DNS={'aktif' if srv_dns_on else 'nonaktif'} ({', '.join(valid_records) if valid_records else '0 record'})",
     ]
     if pc1_dns or pc2_dns:
         actual_parts.append(f"PC1 dns={pc1_dns or '-'}, PC2 dns={pc2_dns or '-'}")
@@ -949,13 +958,13 @@ def _check_optional_dns(lab: ParsedLab, rubric: RubricConfig) -> tuple[CheckResu
 
     v10_ok = pool_v10_dns == "192.168.30.2"
     v20_ok = pool_v20_dns == "192.168.30.2"
-    srv_ok = srv_dns_on and len(srv_records) > 0
+    srv_ok = srv_dns_on and len(valid_records) > 0
 
     if v10_ok and v20_ok and srv_ok:
         check = _make_check(
             "opt_dns", "Opsional", "R1, Server1", "Konfigurasi DNS (opsional)",
             rubric, 1.0, expected, actual,
-            "Konfigurasi DNS opsional terdeteksi lengkap (dns-server 192.168.30.2 pada kedua pool R1 dan layanan DNS aktif di Server1).",
+            f"Konfigurasi DNS opsional lengkap (bonus +{rubric.weight('opt_dns'):g} poin, skor total tetap maks. 100).",
             optional=True,
         )
         return check, "complete"
@@ -967,13 +976,13 @@ def _check_optional_dns(lab: ParsedLab, rubric: RubricConfig) -> tuple[CheckResu
         notes.append("pool VLAN 20 belum menyertakan 'dns-server 192.168.30.2'")
     if not srv_dns_on:
         notes.append("layanan DNS pada Server1 belum diaktifkan")
-    elif not srv_records:
-        notes.append("belum ada A-record pada Server1 DNS")
+    elif not valid_records:
+        notes.append("belum ada A-record dengan IP valid pada Server1 DNS")
 
     ratio = sum([v10_ok, v20_ok, srv_ok]) / 3.0
     check = _make_check(
         "opt_dns", "Opsional", "R1, Server1", "Konfigurasi DNS (opsional)",
-        rubric, max(0.3, ratio), expected, actual,
+        rubric, ratio, expected, actual,
         "Konfigurasi DNS opsional terdeteksi parsial: " + "; ".join(notes) + ".",
         optional=True,
     )
@@ -1106,6 +1115,7 @@ def grade_bytes(
         errors=errors,
         category_scores=category_scores,
         devices=_build_snapshots(lab),
+        config_diffs=build_config_diffs(lab),
     )
 
 

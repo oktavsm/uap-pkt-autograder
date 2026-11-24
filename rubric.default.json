@@ -1,5 +1,5 @@
 {
-  "name": "UAP Jaringan Komputer PTI",
+  "name": "UAP Jaringan Komputer TI/PTI",
   "pass_threshold": 70.0,
   "allow_exit_interface_route": false,
   "require_explicit_trunk_allowed": true,
@@ -23,6 +23,6 @@
     "pc1_dhcp": 7.0,
     "pc2_dhcp": 7.0,
     "save_config": 6.0,
-    "opt_dns": 0.0
+    "opt_dns": 5.0
   }
 }

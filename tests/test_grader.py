@@ -345,17 +345,43 @@ def test_optional_dns_detection_and_score_cap() -> None:
             if dns_srv is not None:
                 dns_srv.find("ENABLED").text = "1"
                 db = dns_srv.find("NAMESERVER-DATABASE")
-                rec = ET.SubElement(db, "RECORD")
-                ET.SubElement(rec, "NAME").text = "server1.uap.local"
-                ET.SubElement(rec, "IP").text = "192.168.30.2"
+                rec = ET.SubElement(db, "RESOURCE-RECORD")
+                ET.SubElement(rec, "TYPE").text = "A Record"
+                ET.SubElement(rec, "NAME").text = "bebas.filkom.ub"
+                ET.SubElement(rec, "IPADDRESS").text = "192.168.30.2"
     pkt_with_dns = encode_bytes(ET.tostring(root, encoding="utf-8"), container.format_name)
 
-    # Even with bonus weight assigned to opt_dns, total score remains capped at 100
-    rubric = RubricConfig()
-    rubric.weights["opt_dns"] = 5.0
-    report = grade_bytes(pkt_with_dns, "UAP_245150600111010_Dewi.pkt", rubric=rubric)
+    # Default rubric now includes +5.0 bonus for opt_dns; perfect student remains capped at 100
+    report = grade_bytes(pkt_with_dns, "UAP_245150600111010_Dewi.pkt")
     assert report.dns_optional_status == "complete"
     assert report.score == 100.0
     assert report.max_score == 100.0
     assert report.percentage == 100.0
+    assert "S1" in report.config_diffs
+    assert "R1" in report.config_diffs
+    assert "R2" in report.config_diffs
+    assert "Server1" in report.config_diffs
+    assert any(
+        line.kind == "optional_match" and "dns-server 192.168.30.2" in line.text
+        for line in report.config_diffs["R1"]
+    )
+    assert any(
+        line.kind == "optional_match" and "bebas.filkom.ub -> 192.168.30.2" in line.text
+        for line in report.config_diffs["Server1"]
+    )
+
+    # Partial mandatory score (94 without write memory) + 5 DNS bonus = 99.0
+    container_unsaved = decode_bytes(pkt_with_dns)
+    root_u = ET.fromstring(container_unsaved.xml)
+    for dev in root_u.findall("./NETWORK/DEVICES/DEVICE"):
+        eng = dev.find("ENGINE")
+        if eng is not None:
+            sc = eng.find("STARTUPCONFIG")
+            if sc is not None:
+                sc.clear()
+    unsaved_with_dns = encode_bytes(ET.tostring(root_u, encoding="utf-8"), container_unsaved.format_name)
+    report_bonus = grade_bytes(unsaved_with_dns, "UAP_245150600111011_Raka.pkt")
+    assert report_bonus.dns_optional_status == "complete"
+    assert report_bonus.score == 99.0
+    assert report_bonus.max_score == 100.0
 

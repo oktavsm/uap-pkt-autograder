@@ -1030,7 +1030,7 @@ input:disabled {
   word-break: break-word;
 }
 
-/* Config viewer */
+/* Config & Git-Diff Viewer */
 .config-viewer {
   display: flex;
   flex-direction: column;
@@ -1043,6 +1043,114 @@ input:disabled {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+.config-mode-group {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background-color: var(--bg-surface-2);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.diff-box {
+  background-color: var(--bg-canvas);
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: var(--border-w) solid var(--border-subtle);
+}
+
+.diff-line:last-child {
+  border-bottom: 0;
+}
+
+.diff-prefix {
+  user-select: none;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.diff-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.diff-line-header {
+  background-color: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.diff-line-match {
+  color: var(--text-primary);
+}
+
+.diff-line-missing {
+  background-color: var(--status-fail-bg);
+  color: var(--status-fail-text);
+}
+
+.diff-line-missing .diff-prefix,
+.diff-line-missing .diff-note {
+  color: var(--status-fail-text);
+}
+
+.diff-line-extra {
+  background-color: var(--status-partial-bg);
+  color: var(--status-partial-text);
+}
+
+.diff-line-extra .diff-prefix,
+.diff-line-extra .diff-note {
+  color: var(--status-partial-text);
+}
+
+.diff-line-optional_match {
+  background-color: var(--status-pass-bg);
+  color: var(--status-pass-text);
+}
+
+.diff-line-optional_match .diff-prefix,
+.diff-line-optional_match .diff-note {
+  color: var(--status-pass-text);
+}
+
+.diff-line-optional_missing {
+  background-color: var(--status-optional-bg);
+  color: var(--status-optional-text);
+}
+
+.diff-line-optional_missing .diff-prefix,
+.diff-line-optional_missing .diff-note {
+  color: var(--status-optional-text);
 }
 
 .config-pre {

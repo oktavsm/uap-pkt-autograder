@@ -1,6 +1,20 @@
 export type CheckStatus = "pass" | "partial" | "fail" | "optional";
 export type StudentStatus = "pass" | "partial" | "fail" | "error";
 export type DnsOptionalStatus = "complete" | "partial" | "none";
+export type DiffLineKind =
+  | "header"
+  | "match"
+  | "missing"
+  | "extra"
+  | "optional_missing"
+  | "optional_match";
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  prefix: string;
+  text: string;
+  note: string;
+}
 
 export interface RubricConfig {
   name: string;
@@ -70,6 +84,7 @@ export interface StudentReport {
   errors: string[];
   category_scores: Record<string, { earned: number; possible: number }>;
   devices: Record<string, DeviceSnapshot>;
+  config_diffs: Record<string, DiffLine[]>;
   parse_error: string | null;
 }
 

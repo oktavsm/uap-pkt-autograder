@@ -28,7 +28,7 @@ const SORT_OPTIONS = [
 ];
 
 const FALLBACK_RUBRIC: RubricConfig = {
-  name: "UAP Jaringan Komputer PTI",
+  name: "UAP Jaringan Komputer TI/PTI",
   pass_threshold: 70,
   allow_exit_interface_route: false,
   require_explicit_trunk_allowed: true,
@@ -52,7 +52,7 @@ const FALLBACK_RUBRIC: RubricConfig = {
     pc1_dhcp: 7,
     pc2_dhcp: 7,
     save_config: 6,
-    opt_dns: 0,
+    opt_dns: 5,
   },
 };
 
@@ -218,6 +218,7 @@ export function App() {
   const mandatoryRubricPoints = Object.entries(rubric.weights)
     .filter(([key]) => key !== "opt_dns")
     .reduce((sum, [, val]) => sum + val, 0);
+  const dnsBonusPoints = rubric.weights["opt_dns"] ?? 0;
 
   return (
     <div className="app-shell">
@@ -228,7 +229,7 @@ export function App() {
               <NetworkMarkIcon size={16} />
             </span>
             <span>
-              UAP Autograder<span className="brand-dot"> · Jaringan Komputer PTI</span>
+              UAP Autograder<span className="brand-dot"> · Jaringan Komputer TI/PTI</span>
             </span>
           </a>
 
@@ -278,15 +279,11 @@ export function App() {
       <main id="top" className="main-content">
         <div className="container">
           <div className="page-header">
-            <h1 className="page-title">Evaluasi Konfigurasi Cisco Packet Tracer</h1>
-            <p className="page-subtitle">
-              Pemeriksaan otomatis konfigurasi VLAN, trunk, DHCP, static routing, DHCP client,
-              penyimpanan konfigurasi, serta indikator DNS opsional (skor maksimum 100).
-            </p>
+            <h1 className="page-title">Evaluasi Konfigurasi Cisco Packet Tracer UAP PTI/TI</h1>
             <div className="page-meta-bar">
               <span>Format: .pkt, .pka, .zip</span>
               <span>Indikator wajib: 19 ({mandatoryRubricPoints} poin)</span>
-              <span>Indikator opsional: DNS</span>
+              <span>Bonus opsional DNS: +{dnsBonusPoints} poin (maks. 100)</span>
               <span>Batas lulus: &gt;= {rubric.pass_threshold}%</span>
             </div>
           </div>
@@ -495,7 +492,7 @@ export function App() {
 
       <footer className="site-footer">
         <div className="container footer-inner">
-          <span>UAP Jaringan Komputer PTI · Sistem Evaluasi Otomatis Packet Tracer</span>
+          <span>UAP Jaringan Komputer TI/PTI · Sistem Evaluasi Otomatis Packet Tracer</span>
           <span className="mono">CLI: pkt-grade submissions.zip --csv nilai.csv</span>
         </div>
       </footer>

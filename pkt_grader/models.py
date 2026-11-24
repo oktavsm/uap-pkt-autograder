@@ -26,14 +26,21 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "pc1_dhcp": 7.0,
     "pc2_dhcp": 7.0,
     "save_config": 6.0,
-    "opt_dns": 0.0,
+    "opt_dns": 5.0,
 }
 
 OPTIONAL_CHECK_IDS: frozenset[str] = frozenset({"opt_dns"})
 
 
+class DiffLine(BaseModel):
+    kind: Literal["header", "match", "missing", "extra", "optional_missing", "optional_match"]
+    prefix: str
+    text: str
+    note: str = ""
+
+
 class RubricConfig(BaseModel):
-    name: str = "UAP Jaringan Komputer PTI"
+    name: str = "UAP Jaringan Komputer TI/PTI"
     pass_threshold: float = 70.0
     allow_exit_interface_route: bool = False
     require_explicit_trunk_allowed: bool = True
@@ -91,6 +98,7 @@ class StudentReport(BaseModel):
     errors: list[str] = Field(default_factory=list)
     category_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
     devices: dict[str, DeviceSnapshot] = Field(default_factory=dict)
+    config_diffs: dict[str, list[DiffLine]] = Field(default_factory=dict)
     parse_error: str | None = None
 
 

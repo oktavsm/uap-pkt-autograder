@@ -84,7 +84,13 @@ def _extract_dns_server(eng: ET.Element) -> tuple[bool, list[str]]:
     if db is not None:
         for rec in db:
             domain = (rec.findtext("NAME") or rec.findtext("DOMAIN") or rec.attrib.get("name", "")).strip()
-            addr = (rec.findtext("IP") or rec.findtext("ADDRESS") or rec.findtext("VALUE") or "").strip()
+            addr = (
+                rec.findtext("IPADDRESS")
+                or rec.findtext("IP")
+                or rec.findtext("ADDRESS")
+                or rec.findtext("VALUE")
+                or ""
+            ).strip()
             if domain and addr:
                 records.append(f"{domain} -> {addr}")
             elif domain:
