@@ -146,7 +146,7 @@ export async function fetchRoster(
   const qs = params.toString();
   const res = await fetch(`${API_BASE}/api/roster${qs ? `?${qs}` : ""}`);
   if (!res.ok) {
-    throw new Error(`Gagal memuat data roster (${res.status}).`);
+    throw new Error(`Gagal memuat data praktikan (${res.status}).`);
   }
   return (await res.json()) as RosterResponse;
 }
@@ -160,7 +160,7 @@ export async function importRosterCsv(file: File, replace = true): Promise<Roste
     body: form,
   });
   if (!res.ok) {
-    let detail = `Gagal mengimpor CSV roster (${res.status}).`;
+    let detail = `Gagal mengimpor CSV data praktikan (${res.status}).`;
     try {
       const errBody = (await res.json()) as { detail?: string };
       if (errBody.detail) detail = errBody.detail;

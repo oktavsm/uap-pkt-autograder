@@ -147,7 +147,7 @@ export function AssignStudentModal({
 
           <div className="field-group">
             <span className="metric-label">FILTER PRODI &amp; KELAS</span>
-            <div className="filter-group" role="group" aria-label="Filter prodi roster">
+            <div className="filter-group" role="group" aria-label="Filter prodi data praktikan">
               {(["ALL", "PTI", "TI"] as const).map((code) => (
                 <button
                   key={code}
@@ -191,9 +191,9 @@ export function AssignStudentModal({
 
           {roster.length === 0 ? (
             <div className="empty-state">
-              <p className="empty-title">Roster praktikan belum dimuat</p>
+              <p className="empty-title">Data praktikan belum dimuat</p>
               <p className="empty-desc">
-                Impor berkas CSV daftar praktikan melalui tab Riwayat terlebih dahulu untuk
+                Impor berkas CSV Data Praktikan melalui tab Riwayat terlebih dahulu untuk
                 mengaktifkan pencocokan dan assignment otomatis.
               </p>
             </div>

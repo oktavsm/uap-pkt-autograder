@@ -23,7 +23,7 @@ function MatchSourceBadge({
     return (
       <span className="status-badge status-pass">
         <CheckIcon size={12} />
-        ROSTER: NIM{classTag}
+        COCOK: NIM{classTag}
       </span>
     );
   }
@@ -31,7 +31,7 @@ function MatchSourceBadge({
     return (
       <span className="status-badge status-pass">
         <CheckIcon size={12} />
-        ROSTER: NAMA{classTag}
+        COCOK: NAMA{classTag}
       </span>
     );
   }
@@ -45,7 +45,7 @@ function MatchSourceBadge({
   }
   return (
     <span className="status-badge status-partial">
-      BELUM COCOK ROSTER
+      BELUM TERDETEKSI
     </span>
   );
 }

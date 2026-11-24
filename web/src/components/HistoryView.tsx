@@ -84,7 +84,7 @@ export function HistoryView({
     <section className="history-section" aria-label="Riwayat evaluasi tersimpan">
       <div className="roster-bar">
         <div className="roster-bar-info">
-          <span className="metric-label">ROSTER PRAKTIKAN AUTO-DETECT</span>
+          <span className="metric-label">DATA PRAKTIKAN</span>
           <div className="roster-bar-stats">
             {rosterTotal > 0 ? (
               <span>
@@ -92,7 +92,7 @@ export function HistoryView({
                 TI: {rosterCounts["TI"] ?? 0})
               </span>
             ) : (
-              <span>Belum ada data roster diimpor. Unggah CSV Data Praktikan untuk auto-detect NIM/Nama.</span>
+              <span>Belum ada data praktikan diimpor. Unggah berkas CSV Data Praktikan untuk deteksi otomatis NIM dan nama.</span>
             )}
             {rosterNotice && <span className="metric-label">{rosterNotice}</span>}
           </div>
@@ -103,7 +103,7 @@ export function HistoryView({
             type="file"
             accept=".csv,text/csv"
             className="sr-only"
-            aria-label="Impor berkas CSV roster praktikan"
+            aria-label="Impor berkas CSV data praktikan"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) {
@@ -119,7 +119,7 @@ export function HistoryView({
             onClick={() => rosterInputRef.current?.click()}
           >
             <UploadIcon />
-            {importingRoster ? "Mengimpor..." : "Impor Roster CSV"}
+            {importingRoster ? "Mengimpor..." : "Impor Data Praktikan (CSV)"}
           </button>
         </div>
       </div>

@@ -325,7 +325,7 @@ export function App() {
         `Berhasil mengimpor ${res.imported} praktikan (${res.skipped} baris non-PTI/TI dilewati).`
       );
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Gagal mengimpor berkas CSV roster.");
+      setErrorMsg(err instanceof Error ? err.message : "Gagal mengimpor berkas CSV data praktikan.");
     } finally {
       setImportingRoster(false);
     }
