@@ -1,0 +1,27 @@
+{
+  "name": "UAP Jaringan Komputer PTI",
+  "pass_threshold": 70.0,
+  "allow_exit_interface_route": false,
+  "require_explicit_trunk_allowed": true,
+  "weights": {
+    "topo_devices": 2.0,
+    "topo_links": 3.0,
+    "s1_vlans": 5.0,
+    "s1_access_fa01": 5.0,
+    "s1_access_fa02": 5.0,
+    "s1_trunk_mode": 5.0,
+    "s1_trunk_allowed": 5.0,
+    "r1_base_ip": 4.0,
+    "r1_dhcp_excl_10": 5.0,
+    "r1_dhcp_excl_20": 5.0,
+    "r1_dhcp_pool_10": 8.0,
+    "r1_dhcp_pool_20": 8.0,
+    "r2_base_ip": 2.0,
+    "r1_route_lanb": 6.0,
+    "r2_route_vlan10": 6.0,
+    "r2_route_vlan20": 6.0,
+    "pc1_dhcp": 7.0,
+    "pc2_dhcp": 7.0,
+    "save_config": 6.0
+  }
+}

@@ -1,0 +1,7 @@
+services:
+  autograder:
+    build: .
+    container_name: uap-pkt-autograder
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

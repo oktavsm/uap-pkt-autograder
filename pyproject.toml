@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uap-pkt-autograder"
+version = "1.0.0"
+description = "Offline semantic autograder for Cisco Packet Tracer (.pkt/.pka) UAP networking exams with CLI and web workbench."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "packet-tracer-pkt-format>=0.1.0",
+    "pydantic>=2.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+pkt-grade = "pkt_grader.cli:main"
+pkt-grade-web = "pkt_grader.server:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pkt_grader"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
