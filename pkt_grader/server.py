@@ -16,7 +16,21 @@ from pkt_grader.exporter import batch_to_csv_string
 from pkt_grader.models import BatchReport, RubricConfig, StudentReport
 
 
-WEB_DIST_DIR = Path(__file__).resolve().parent.parent / "web" / "dist"
+def _resolve_web_dist_dir() -> Path | None:
+    env_dir = os.environ.get("WEB_DIST_DIR")
+    candidates = [
+        Path(env_dir) if env_dir else None,
+        Path(__file__).resolve().parent.parent / "web" / "dist",
+        Path.cwd() / "web" / "dist",
+        Path("/app/web/dist"),
+    ]
+    for candidate in candidates:
+        if candidate is not None and (candidate / "index.html").is_file():
+            return candidate
+    return None
+
+
+WEB_DIST_DIR = _resolve_web_dist_dir()
 
 CHECK_CATALOG = [
     {"id": "topo_devices", "category": "Topologi", "device": "Topologi", "label": "Kelengkapan 6 perangkat utama"},
@@ -144,17 +158,18 @@ def create_app() -> FastAPI:
             headers={"Content-Disposition": 'attachment; filename="uap_grades.csv"'},
         )
 
-    if WEB_DIST_DIR.exists():
-        assets_dir = WEB_DIST_DIR / "assets"
+    web_dist = _resolve_web_dist_dir()
+    if web_dist is not None:
+        assets_dir = web_dist / "assets"
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
         @app.get("/{full_path:path}")
         def serve_spa(full_path: str) -> FileResponse:
-            target = WEB_DIST_DIR / full_path
+            target = web_dist / full_path
             if full_path and target.is_file():
                 return FileResponse(target)
-            return FileResponse(WEB_DIST_DIR / "index.html")
+            return FileResponse(web_dist / "index.html")
 
     return app
 
