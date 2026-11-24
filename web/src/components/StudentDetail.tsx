@@ -5,6 +5,8 @@ import { CheckIcon, CloseIcon, CopyIcon, MinusCircleIcon } from "./Icons";
 interface StudentDetailProps {
   student: StudentReport;
   rosterCount?: number;
+  batchProdi?: string;
+  batchKelas?: string;
   onOpenAssign?: () => void;
 }
 
@@ -134,11 +136,30 @@ function DiffBlock({ lines }: { lines: DiffLine[] }) {
   );
 }
 
-export function StudentDetail({ student, rosterCount = 0, onOpenAssign }: StudentDetailProps) {
+export function StudentDetail({
+  student,
+  rosterCount = 0,
+  batchProdi,
+  batchKelas,
+  onOpenAssign,
+}: StudentDetailProps) {
   const [tab, setTab] = useState<InspectorTab>("checks");
   const [configMode, setConfigMode] = useState<ConfigViewMode>("diff");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const hasClassMismatch = Boolean(
+    student.matched_prodi &&
+      student.matched_kelas &&
+      batchProdi &&
+      batchKelas &&
+      (student.matched_prodi !== batchProdi || student.matched_kelas !== batchKelas)
+  );
+  const studentClassLabel =
+    student.matched_prodi && student.matched_kelas
+      ? `${student.matched_prodi} - ${student.matched_kelas}`
+      : "";
+  const batchClassLabel = batchProdi && batchKelas ? `${batchProdi} - ${batchKelas}` : "";
 
   useEffect(() => {
     setTab("checks");
@@ -269,6 +290,12 @@ export function StudentDetail({ student, rosterCount = 0, onOpenAssign }: Studen
                 matchedProdi={student.matched_prodi}
                 matchedKelas={student.matched_kelas}
               />
+              {hasClassMismatch && (
+                <span className="status-badge status-partial">
+                  <MinusCircleIcon size={12} />
+                  BEDA KELAS (SESI: {batchClassLabel})
+                </span>
+              )}
               {onOpenAssign && (
                 <button
                   type="button"
@@ -293,6 +320,18 @@ export function StudentDetail({ student, rosterCount = 0, onOpenAssign }: Studen
           <DnsSummaryBadge status={student.dns_optional_status} />
         </div>
       </div>
+
+      {hasClassMismatch && (
+        <div className="alert alert-warn" role="status">
+          <MinusCircleIcon size={16} />
+          <div>
+            <strong>Perbedaan kelas terdeteksi:</strong> praktikan ini terdaftar di{" "}
+            <strong>{studentClassLabel}</strong>, sedangkan sesi evaluasi ini adalah{" "}
+            <strong>{batchClassLabel}</strong>. Pastikan berkas tidak salah masuk kelas atau
+            gunakan tombol Ubah praktikan bila pencocokan perlu disesuaikan.
+          </div>
+        </div>
+      )}
 
       {student.parse_error && (
         <div className="alert" role="alert">

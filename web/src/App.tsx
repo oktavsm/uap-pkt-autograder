@@ -44,7 +44,7 @@ import {
 } from "./types";
 
 type AppView = "evaluate" | "history";
-type StatusFilter = "all" | StudentStatus | "unmatched";
+type StatusFilter = "all" | StudentStatus | "unmatched" | "mismatch";
 type SortKey = "score_desc" | "score_asc" | "nim_asc" | "name_asc";
 
 const SORT_OPTIONS = [
@@ -430,6 +430,18 @@ export function App() {
     r.match_source === "roster_name" ||
     r.match_source === "manual";
 
+  const isClassMismatch = useCallback(
+    (r: StudentReport) =>
+      Boolean(
+        r.matched_prodi &&
+          r.matched_kelas &&
+          report?.prodi &&
+          report?.kelas &&
+          (r.matched_prodi !== report.prodi || r.matched_kelas !== report.kelas)
+      ),
+    [report?.prodi, report?.kelas]
+  );
+
   const counts = useMemo(() => {
     const items = report?.results ?? [];
     return {
@@ -438,8 +450,9 @@ export function App() {
       partial: items.filter((r) => r.status === "partial").length,
       fail: items.filter((r) => r.status === "fail" || r.status === "error").length,
       unmatched: items.filter((r) => !isRosterMatched(r)).length,
+      mismatch: items.filter((r) => isClassMismatch(r)).length,
     };
-  }, [report]);
+  }, [report, isClassMismatch]);
 
   const assignedNimsInBatch = useMemo(() => {
     const set = new Set<string>();
@@ -459,6 +472,7 @@ export function App() {
       if (statusFilter === "partial" && r.status !== "partial") return false;
       if (statusFilter === "fail" && r.status !== "fail" && r.status !== "error") return false;
       if (statusFilter === "unmatched" && isRosterMatched(r)) return false;
+      if (statusFilter === "mismatch" && !isClassMismatch(r)) return false;
       if (!q) return true;
       return (
         r.filename.toLowerCase().includes(q) ||
@@ -475,7 +489,7 @@ export function App() {
       return (a.student_name || a.filename).localeCompare(b.student_name || b.filename);
     });
     return sorted;
-  }, [report, search, statusFilter, sortBy]);
+  }, [report, search, statusFilter, sortBy, isClassMismatch]);
 
   const activeStudent = useMemo(() => {
     if (filteredResults.length === 0) return null;
@@ -652,6 +666,12 @@ export function App() {
                           Tersimpan: {formatRunDate(report.created_at)}
                         </span>
                       )}
+                      {counts.mismatch > 0 && (
+                        <span className="status-badge status-partial">
+                          <MinusCircleIcon size={12} />
+                          {counts.mismatch} berkas beda kelas
+                        </span>
+                      )}
                       {report.note && <span className="history-note">{report.note}</span>}
                     </div>
                   )}
@@ -746,6 +766,13 @@ export function App() {
                             ["pass", "Lulus", counts.pass],
                             ["partial", "Parsial", counts.partial],
                             ["fail", "Tidak lulus", counts.fail],
+                            ...(rosterData.total > 0 && counts.mismatch > 0
+                              ? ([["mismatch", "Beda kelas", counts.mismatch]] as [
+                                  StatusFilter,
+                                  string,
+                                  number,
+                                ][])
+                              : []),
                             ...(rosterData.total > 0 && counts.unmatched > 0
                               ? ([["unmatched", "Belum cocok", counts.unmatched]] as [
                                   StatusFilter,
@@ -791,11 +818,12 @@ export function App() {
                         <ul className="ledger-list">
                           {filteredResults.map((student) => {
                             const isSelected = activeStudent?.source_path === student.source_path;
+                            const mismatch = isClassMismatch(student);
                             return (
                               <li key={student.source_path} className="ledger-item">
                                 <button
                                   type="button"
-                                  className="ledger-row-btn"
+                                  className={`ledger-row-btn${mismatch ? " ledger-row-mismatch" : ""}`}
                                   aria-selected={isSelected}
                                   onClick={() => setSelectedKey(student.source_path)}
                                 >
@@ -807,9 +835,15 @@ export function App() {
                                       <span>{student.nim || "Tanpa NIM"}</span>
                                       <span>· {student.errors.length} tidak sesuai</span>
                                       {student.matched_prodi && student.matched_kelas && (
-                                        <span>
-                                          · {student.matched_prodi} - {student.matched_kelas}
-                                        </span>
+                                        mismatch ? (
+                                          <span className="mismatch-pill">
+                                            Beda kelas: {student.matched_prodi} - {student.matched_kelas}
+                                          </span>
+                                        ) : (
+                                          <span>
+                                            · {student.matched_prodi} - {student.matched_kelas}
+                                          </span>
+                                        )
                                       )}
                                       {rosterData.total > 0 && !isRosterMatched(student) && (
                                         <span className="meta-warn">· Belum cocok</span>
@@ -839,6 +873,8 @@ export function App() {
                         <StudentDetail
                           student={activeStudent}
                           rosterCount={rosterData.total}
+                          batchProdi={report?.prodi}
+                          batchKelas={report?.kelas}
                           onOpenAssign={() => setAssignModalOpen(true)}
                         />
                       )}

@@ -546,6 +546,12 @@ input:disabled {
   font-size: var(--text-sm);
 }
 
+.alert-warn {
+  border-color: var(--status-partial-border);
+  background-color: var(--status-partial-bg);
+  color: var(--status-partial-text);
+}
+
 /* Loading spinner */
 .spinner {
   width: var(--space-4);
@@ -1486,6 +1492,25 @@ input:disabled {
 
 .meta-warn {
   color: var(--status-partial-text);
+}
+
+.ledger-row-mismatch {
+  background-color: var(--status-partial-bg);
+}
+
+.ledger-row-mismatch:hover {
+  background-color: var(--status-partial-bg);
+}
+
+.mismatch-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--border-w) solid var(--status-partial-border);
+  background-color: var(--status-partial-bg);
+  color: var(--status-partial-text);
+  font-weight: 500;
 }
 
 .assign-file-context {
