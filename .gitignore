@@ -7,6 +7,7 @@ dist/
 build/
 web/node_modules/
 web/dist/
+*.tsbuildinfo
 *.csv
 *.log
 .DS_Store
