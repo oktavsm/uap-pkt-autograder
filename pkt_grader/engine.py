@@ -1132,9 +1132,85 @@ def grade_bytes(
     )
 
 
+def grade_pkz_bytes(
+    pkz_bytes: bytes,
+    filename: str,
+    source_path: str | None = None,
+    rubric: RubricConfig | None = None,
+) -> StudentReport:
+    """Extract and grade the .pkt/.pka payload inside a Packet Tracer .pkz archive.
+
+    Preserves the outer .pkz filename for NIM/student identity extraction even when
+    the inner file still has a generic template name.
+    """
+    src = source_path or filename
+    active_rubric = rubric or RubricConfig()
+    nim, student_name = extract_student_identity(filename)
+    try:
+        with zipfile.ZipFile(io.BytesIO(pkz_bytes)) as zf:
+            for info in sorted(zf.infolist(), key=lambda x: x.filename):
+                if info.is_dir():
+                    continue
+                member = Path(info.filename)
+                if "__MACOSX" in member.parts or member.name.startswith("."):
+                    continue
+                if member.suffix.lower() not in (".pkt", ".pka"):
+                    continue
+                if info.file_size > MAX_ARCHIVE_ENTRY_BYTES:
+                    return StudentReport(
+                        filename=filename,
+                        source_path=src,
+                        nim=nim,
+                        student_name=student_name,
+                        status="error",
+                        score=0.0,
+                        max_score=100.0,
+                        percentage=0.0,
+                        passed=False,
+                        errors=["Ukuran file di dalam .pkz melebihi batas maksimum 50 MB."],
+                        parse_error="File size inside .pkz exceeds 50 MB limit.",
+                    )
+                payload = zf.read(info)
+                return grade_bytes(
+                    payload,
+                    filename=filename,
+                    source_path=src,
+                    rubric=active_rubric,
+                )
+    except Exception as exc:
+        return StudentReport(
+            filename=filename,
+            source_path=src,
+            nim=nim,
+            student_name=student_name,
+            status="error",
+            score=0.0,
+            max_score=100.0,
+            percentage=0.0,
+            passed=False,
+            errors=[f"Gagal mengekstrak arsip .pkz '{filename}': {exc}"],
+            parse_error=str(exc),
+        )
+    return StudentReport(
+        filename=filename,
+        source_path=src,
+        nim=nim,
+        student_name=student_name,
+        status="error",
+        score=0.0,
+        max_score=100.0,
+        percentage=0.0,
+        passed=False,
+        errors=[f"Tidak ditemukan berkas .pkt/.pka di dalam arsip .pkz '{filename}'."],
+        parse_error="No .pkt/.pka entry inside .pkz archive.",
+    )
+
+
 def grade_file(path: str | Path, rubric: RubricConfig | None = None) -> StudentReport:
-    """Grade a single .pkt or .pka file from disk."""
+    """Grade a single .pkt, .pka, or .pkz file from disk."""
     p = Path(path)
+    if p.suffix.lower() == ".pkz":
+        return grade_pkz_bytes(p.read_bytes(), filename=p.name, source_path=str(p), rubric=rubric)
     return grade_bytes(p.read_bytes(), filename=p.name, source_path=str(p), rubric=rubric)
 
 
@@ -1143,7 +1219,7 @@ def grade_archive_bytes(
     archive_name: str = "upload.zip",
     rubric: RubricConfig | None = None,
 ) -> list[StudentReport]:
-    """Extract and grade all .pkt/.pka files inside a ZIP archive (recursively)."""
+    """Extract and grade all .pkt/.pka/.pkz files inside a ZIP archive (recursively)."""
     results: list[StudentReport] = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for info in sorted(zf.infolist(), key=lambda x: x.filename):
@@ -1153,7 +1229,7 @@ def grade_archive_bytes(
             if "__MACOSX" in member_path.parts or member_path.name.startswith("."):
                 continue
             suffix = member_path.suffix.lower()
-            if suffix not in (".pkt", ".pka"):
+            if suffix not in (".pkt", ".pka", ".pkz"):
                 continue
             if info.file_size > MAX_ARCHIVE_ENTRY_BYTES:
                 results.append(
@@ -1171,14 +1247,24 @@ def grade_archive_bytes(
                 )
                 continue
             payload = zf.read(info)
-            results.append(
-                grade_bytes(
-                    payload,
-                    filename=member_path.name,
-                    source_path=f"{archive_name}::{info.filename}",
-                    rubric=rubric,
+            if suffix == ".pkz":
+                results.append(
+                    grade_pkz_bytes(
+                        payload,
+                        filename=member_path.name,
+                        source_path=f"{archive_name}::{info.filename}",
+                        rubric=rubric,
+                    )
                 )
-            )
+            else:
+                results.append(
+                    grade_bytes(
+                        payload,
+                        filename=member_path.name,
+                        source_path=f"{archive_name}::{info.filename}",
+                        rubric=rubric,
+                    )
+                )
     return results
 
 
@@ -1263,7 +1349,7 @@ def grade_inputs(
                 if not child.is_file() or child.name.startswith("."):
                     continue
                 ext = child.suffix.lower()
-                if ext in (".pkt", ".pka"):
+                if ext in (".pkt", ".pka", ".pkz"):
                     results.append(grade_file(child, rubric=active_rubric))
                 elif ext == ".zip":
                     results.extend(grade_archive_bytes(child.read_bytes(), child.name, rubric=active_rubric))
@@ -1271,7 +1357,7 @@ def grade_inputs(
             ext = p.suffix.lower()
             if ext == ".zip":
                 results.extend(grade_archive_bytes(p.read_bytes(), p.name, rubric=active_rubric))
-            elif ext in (".pkt", ".pka"):
+            elif ext in (".pkt", ".pka", ".pkz"):
                 results.append(grade_file(p, rubric=active_rubric))
 
     return summarize_batch(results, active_rubric)

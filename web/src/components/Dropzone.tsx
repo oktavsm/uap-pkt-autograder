@@ -127,7 +127,7 @@ export function Dropzone({
                 Unggah berkas kelas {prodi} - {kelas} atau letakkan di area ini
               </p>
               <p className="dropzone-hint">
-                Format yang diterima: arsip .zip, .pkt, atau .pka (mendukung pemilihan banyak berkas).
+                Format yang diterima: arsip .zip, .pkt, .pka, atau .pkz (mendukung pemilihan banyak berkas).
               </p>
             </div>
           </div>
@@ -138,14 +138,14 @@ export function Dropzone({
               disabled={loading}
               onClick={() => inputRef.current?.click()}
             >
-              Pilih berkas (.pkt / .pka / .zip)
+              Pilih berkas (.pkt / .pka / .pkz / .zip)
             </button>
           </div>
           <input
             ref={inputRef}
             type="file"
             multiple
-            accept=".pkt,.pka,.zip"
+            accept=".pkt,.pka,.pkz,.zip"
             className="sr-only"
             aria-label="Pilih berkas Packet Tracer atau arsip ZIP"
             onChange={(e) => {

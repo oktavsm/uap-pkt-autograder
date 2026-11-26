@@ -12,7 +12,13 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from pkt_grader.engine import extract_student_identity, grade_archive_bytes, grade_bytes, summarize_batch
+from pkt_grader.engine import (
+    extract_student_identity,
+    grade_archive_bytes,
+    grade_bytes,
+    grade_pkz_bytes,
+    summarize_batch,
+)
 from pkt_grader.exporter import batch_to_csv_string, batches_to_csv_string, class_rekap_to_csv_string
 from pkt_grader.history import HistoryStore, PRODI_CLASSES, validate_prodi_kelas
 from pkt_grader.models import BatchReport, HistoryRunMeta, RubricConfig, StudentReport
@@ -146,6 +152,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                             parse_error=str(exc),
                         )
                     )
+            elif suffix == ".pkz":
+                results.append(grade_pkz_bytes(raw, filename=name, source_path=name, rubric=rubric))
             elif suffix in (".pkt", ".pka"):
                 results.append(grade_bytes(raw, filename=name, source_path=name, rubric=rubric))
             else:
@@ -158,7 +166,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                         max_score=100.0,
                         percentage=0.0,
                         passed=False,
-                        errors=[f"Ekstensi tidak didukung ('{suffix or 'tanpa ekstensi'}'). Gunakan .pkt, .pka, atau .zip."],
+                        errors=[f"Ekstensi tidak didukung ('{suffix or 'tanpa ekstensi'}'). Gunakan .pkt, .pka, .pkz, atau .zip."],
                         parse_error="Unsupported file extension",
                     )
                 )
@@ -166,7 +174,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if not results:
             raise HTTPException(
                 status_code=400,
-                detail="Tidak ada file .pkt atau .pka ditemukan di dalam unggahan atau arsip ZIP.",
+                detail="Tidak ada file .pkt, .pka, atau .pkz ditemukan di dalam unggahan atau arsip ZIP.",
             )
 
         roster_cache = roster.list_students()

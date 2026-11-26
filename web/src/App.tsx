@@ -589,7 +589,7 @@ export function App() {
           <div className="page-header">
             <h1 className="page-title">Evaluasi Konfigurasi Cisco Packet Tracer UAP PTI/TI</h1>
             <div className="page-meta-bar">
-              <span>Format: .pkt, .pka, .zip</span>
+              <span>Format: .pkt, .pka, .pkz, .zip</span>
               <span>Indikator wajib: 19 ({mandatoryRubricPoints} poin)</span>
               <span>Bonus opsional DNS: +{dnsBonusPoints} poin (maks. 100)</span>
               <span>Batas lulus: &gt;= {rubric.pass_threshold}%</span>
